@@ -22,10 +22,9 @@ export interface FirebaseConfig {
 export interface Subscriber {
   id: string;
   token: string; // FCM token
-  domainId: string;
-  domainName: string;
-  subscribedAt: string;
-  userAgent?: string; // Optional: browser/OS info
+  domainName: string; // The domain they subscribed from
+  subscribedAt: string; // ISO date string
+  userAgent?: string; // Optional: browser/OS info captured from client
 }
 
 export interface Campaign {
