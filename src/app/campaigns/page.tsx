@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Eye, PlusCircle, AlertCircle, CheckCircle2, ListFilter } from "lucide-react";
+import { Eye, PlusCircle, AlertCircle, CheckCircle2, ListFilter, Send } from "lucide-react";
 import type { Campaign } from '@/lib/types';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Badge } from '@/components/ui/badge';
@@ -18,12 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 
-const initialCampaigns: Campaign[] = [
-  { id: 'camp1', title: '🎉 New Feature Alert!', body: 'Check out our amazing new AI-powered editor.', sentAt: '2023-12-01', status: 'sent', recipients: 1200, targetUrl: '/features/ai-editor', imageUrl: 'https://placehold.co/100x100.png' },
-  { id: 'camp2', title: '🎁 Holiday Special Offer', body: 'Get 50% off all plans this week only!', sentAt: '2023-12-10', status: 'sent', recipients: 1150, targetUrl: '/pricing' },
-  { id: 'camp3', title: 'Reminder: Webinar Tomorrow', body: 'Join our free webinar on maximizing productivity.', sentAt: '2023-12-14', status: 'failed', recipients: 0, targetUrl: '/webinars/productivity' },
-  { id: 'camp4', title: 'Draft: Q1 Newsletter', body: 'Coming soon: exciting updates for the new year!', sentAt: '2023-12-15', status: 'draft', recipients: 0 },
-];
+const initialCampaigns: Campaign[] = [];
 
 export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);

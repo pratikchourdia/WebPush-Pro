@@ -3,7 +3,7 @@ export interface Domain {
   name: string;
   addedDate: string;
   status: 'verified' | 'pending' | 'error';
-  firebaseConfig?: FirebaseConfig; // For script generation
+  firebaseConfig: FirebaseConfig; // Made non-optional
 }
 
 export interface FirebaseConfig {
@@ -35,3 +35,4 @@ export interface Campaign {
   status: 'sent' | 'draft' | 'failed';
   recipients: number;
 }
+

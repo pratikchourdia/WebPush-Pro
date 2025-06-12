@@ -12,11 +12,7 @@ import { PageHeader } from '@/components/shared/PageHeader';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from '@/hooks/use-toast';
 
-const initialSubscribers: Subscriber[] = [
-  { id: 'sub1', token: 'cXVzaDo...YUd0', domainId: '1', domainName: 'example.com', subscribedAt: '2023-10-05', userAgent: 'Chrome on Windows' },
-  { id: 'sub2', token: 'fJkLp9...zQxR2', domainId: '1', domainName: 'example.com', subscribedAt: '2023-10-08', userAgent: 'Firefox on macOS' },
-  { id: 'sub3', token: 'eYpWd1...oPqM7', domainId: '2', domainName: 'another-site.net', subscribedAt: '2023-11-20', userAgent: 'Safari on iOS' },
-];
+const initialSubscribers: Subscriber[] = [];
 
 export default function SubscribersPage() {
   const [subscribers, setSubscribers] = useState<Subscriber[]>(initialSubscribers);
@@ -37,7 +33,7 @@ export default function SubscribersPage() {
     return matchesSearch && matchesDomain;
   });
 
-  const uniqueDomains = ['all', ...Array.from(new Set(initialSubscribers.map(sub => sub.domainName)))];
+  const uniqueDomains = ['all', ...Array.from(new Set(subscribers.map(sub => sub.domainName)))];
 
   return (
     <div className="container mx-auto">
@@ -78,7 +74,7 @@ export default function SubscribersPage() {
             <div className="text-center py-10 text-muted-foreground">
               <UserX className="mx-auto h-12 w-12 mb-4" />
               <p className="text-xl font-semibold">No subscribers found.</p>
-              <p>Try adjusting your search or filter.</p>
+              <p>Try adjusting your search or filter, or add subscribers via your domains.</p>
             </div>
           ) : (
           <Table>

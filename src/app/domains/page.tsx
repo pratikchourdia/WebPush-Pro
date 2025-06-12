@@ -11,10 +11,17 @@ import type { Domain, FirebaseConfig } from '@/lib/types';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { useToast } from '@/hooks/use-toast';
 
-const initialDomains: Domain[] = [
-  { id: '1', name: 'example.com', addedDate: '2023-10-01', status: 'verified', firebaseConfig: { apiKey: 'AIza...', authDomain: 'proj.firebaseapp.com', projectId: 'proj-id', storageBucket: 'proj.appspot.com', messagingSenderId: '12345', appId: '1:123:web:abc', vapidKey: 'YOUR_PUBLIC_VAPID_KEY_FROM_FIREBASE' } },
-  { id: '2', name: 'another-site.net', addedDate: '2023-11-15', status: 'pending', firebaseConfig: { apiKey: 'AIza...', authDomain: 'another.firebaseapp.com', projectId: 'another-id', storageBucket: 'another.appspot.com', messagingSenderId: '67890', appId: '1:67890:web:def', vapidKey: 'YOUR_PUBLIC_VAPID_KEY_FROM_FIREBASE' } },
-];
+const initialDomains: Domain[] = [];
+
+const initialFirebaseConfig: FirebaseConfig = {
+  apiKey: '',
+  authDomain: '',
+  projectId: '',
+  storageBucket: '',
+  messagingSenderId: '',
+  appId: '',
+  vapidKey: '',
+};
 
 function generateFirebaseScript(config: FirebaseConfig, domainName: string): string {
   return `
@@ -107,8 +114,14 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
 export default function DomainsPage() {
   const [domains, setDomains] = useState<Domain[]>(initialDomains);
   const [newDomainName, setNewDomainName] = useState('');
+  const [newFirebaseConfig, setNewFirebaseConfig] = useState<FirebaseConfig>(initialFirebaseConfig);
   const [selectedDomainForScript, setSelectedDomainForScript] = useState<Domain | null>(null);
   const { toast } = useToast();
+
+  const handleFirebaseConfigChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target;
+    setNewFirebaseConfig(prev => ({ ...prev, [name]: value }));
+  };
 
   const handleAddDomain = (e: React.FormEvent) => {
     e.preventDefault();
@@ -116,23 +129,24 @@ export default function DomainsPage() {
       toast({ title: "Error", description: "Domain name cannot be empty.", variant: "destructive" });
       return;
     }
+    // Basic validation for Firebase config (presence)
+    for (const key in newFirebaseConfig) {
+      if (!newFirebaseConfig[key as keyof FirebaseConfig].trim()) {
+        toast({ title: "Error", description: `Firebase ${key} cannot be empty.`, variant: "destructive" });
+        return;
+      }
+    }
+
     const newDomain: Domain = {
       id: String(Date.now()),
       name: newDomainName,
       addedDate: new Date().toISOString().split('T')[0],
       status: 'pending', // Mock: In a real app, this would involve verification
-      firebaseConfig: { // Dummy config for new domains
-        apiKey: "YOUR_API_KEY",
-        authDomain: "YOUR_PROJECT.firebaseapp.com",
-        projectId: "YOUR_PROJECT_ID",
-        storageBucket: "YOUR_PROJECT.appspot.com",
-        messagingSenderId: "YOUR_SENDER_ID",
-        appId: "YOUR_APP_ID",
-        vapidKey: "YOUR_PUBLIC_VAPID_KEY_FROM_FIREBASE"
-      }
+      firebaseConfig: { ...newFirebaseConfig }
     };
     setDomains(prev => [newDomain, ...prev]);
     setNewDomainName('');
+    setNewFirebaseConfig(initialFirebaseConfig); // Reset Firebase config form
     toast({ title: "Success", description: `Domain ${newDomainName} added (pending verification).` });
   };
   
@@ -156,12 +170,12 @@ export default function DomainsPage() {
       <Card className="mb-8 shadow-lg rounded-lg">
         <CardHeader>
           <CardTitle>Add New Domain</CardTitle>
-          <CardDescription>Enter the domain you want to enable push notifications for.</CardDescription>
+          <CardDescription>Enter the domain you want to enable push notifications for, along with its Firebase configuration.</CardDescription>
         </CardHeader>
         <CardContent>
-          <form onSubmit={handleAddDomain} className="flex flex-col sm:flex-row gap-4">
-            <div className="flex-grow">
-              <Label htmlFor="domainName" className="sr-only">Domain Name</Label>
+          <form onSubmit={handleAddDomain} className="space-y-6">
+            <div>
+              <Label htmlFor="domainName">Domain Name</Label>
               <Input
                 id="domainName"
                 type="text"
@@ -169,8 +183,42 @@ export default function DomainsPage() {
                 value={newDomainName}
                 onChange={(e) => setNewDomainName(e.target.value)}
                 className="text-base"
+                required
               />
             </div>
+            
+            <fieldset className="space-y-4 p-4 border rounded-md">
+              <legend className="text-sm font-medium text-muted-foreground px-1">Firebase Configuration</legend>
+              <div>
+                <Label htmlFor="apiKey">API Key</Label>
+                <Input id="apiKey" name="apiKey" type="text" placeholder="Firebase API Key" value={newFirebaseConfig.apiKey} onChange={handleFirebaseConfigChange} required className="text-base"/>
+              </div>
+              <div>
+                <Label htmlFor="authDomain">Auth Domain</Label>
+                <Input id="authDomain" name="authDomain" type="text" placeholder="your-project.firebaseapp.com" value={newFirebaseConfig.authDomain} onChange={handleFirebaseConfigChange} required className="text-base"/>
+              </div>
+              <div>
+                <Label htmlFor="projectId">Project ID</Label>
+                <Input id="projectId" name="projectId" type="text" placeholder="your-project-id" value={newFirebaseConfig.projectId} onChange={handleFirebaseConfigChange} required className="text-base"/>
+              </div>
+              <div>
+                <Label htmlFor="storageBucket">Storage Bucket</Label>
+                <Input id="storageBucket" name="storageBucket" type="text" placeholder="your-project.appspot.com" value={newFirebaseConfig.storageBucket} onChange={handleFirebaseConfigChange} required className="text-base"/>
+              </div>
+              <div>
+                <Label htmlFor="messagingSenderId">Messaging Sender ID</Label>
+                <Input id="messagingSenderId" name="messagingSenderId" type="text" placeholder="1234567890" value={newFirebaseConfig.messagingSenderId} onChange={handleFirebaseConfigChange} required className="text-base"/>
+              </div>
+              <div>
+                <Label htmlFor="appId">App ID</Label>
+                <Input id="appId" name="appId" type="text" placeholder="1:123...:web:..." value={newFirebaseConfig.appId} onChange={handleFirebaseConfigChange} required className="text-base"/>
+              </div>
+              <div>
+                <Label htmlFor="vapidKey">VAPID Key (Public Key)</Label>
+                <Input id="vapidKey" name="vapidKey" type="text" placeholder="Your Firebase Cloud Messaging public VAPID key" value={newFirebaseConfig.vapidKey} onChange={handleFirebaseConfigChange} required className="text-base"/>
+              </div>
+            </fieldset>
+
             <Button type="submit" className="w-full sm:w-auto">
               <PlusCircle className="mr-2 h-5 w-5" /> Add Domain
             </Button>
@@ -180,7 +228,7 @@ export default function DomainsPage() {
 
       <div className="space-y-6">
         {domains.length === 0 ? (
-          <p className="text-center text-muted-foreground">No domains added yet. Add your first domain to get started!</p>
+          <p className="text-center text-muted-foreground py-10">No domains added yet. Add your first domain to get started!</p>
         ) : (
           domains.map((domain) => (
             <Card key={domain.id} className="shadow-md hover:shadow-lg transition-shadow duration-300 rounded-lg">
@@ -195,7 +243,7 @@ export default function DomainsPage() {
                 <CardDescription>Added on: {new Date(domain.addedDate).toLocaleDateString()}</CardDescription>
               </CardHeader>
               <CardFooter className="flex justify-end gap-2">
-                {domain.status === 'verified' && domain.firebaseConfig && (
+                {domain.status === 'verified' && ( // Get script only if verified
                   <Dialog onOpenChange={(open) => !open && setSelectedDomainForScript(null)}>
                     <DialogTrigger asChild>
                       <Button variant="outline" onClick={() => setSelectedDomainForScript(domain)}>
@@ -213,12 +261,12 @@ export default function DomainsPage() {
                         </DialogHeader>
                         <div className="flex-grow overflow-auto p-1">
                           <pre className="bg-muted p-4 rounded-md text-xs whitespace-pre-wrap break-all">
-                            <code>{generateFirebaseScript(selectedDomainForScript.firebaseConfig!, selectedDomainForScript.name)}</code>
+                            <code>{generateFirebaseScript(selectedDomainForScript.firebaseConfig, selectedDomainForScript.name)}</code>
                           </pre>
                         </div>
                         <DialogFooter>
                            <Button onClick={() => {
-                              navigator.clipboard.writeText(generateFirebaseScript(selectedDomainForScript.firebaseConfig!, selectedDomainForScript.name));
+                              navigator.clipboard.writeText(generateFirebaseScript(selectedDomainForScript.firebaseConfig, selectedDomainForScript.name));
                               toast({ title: "Copied!", description: "Script copied to clipboard."});
                            }}>Copy Script</Button>
                           <DialogClose asChild>
@@ -229,9 +277,9 @@ export default function DomainsPage() {
                     )}
                   </Dialog>
                 )}
-                {/* <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-600">
-                  <Trash2 className="mr-2 h-4 w-4" /> Delete (Not implemented)
-                </Button> */}
+                 {domain.status === 'pending' && (
+                    <Button variant="outline" size="sm" disabled>Verification Pending</Button>
+                  )}
               </CardFooter>
             </Card>
           ))
