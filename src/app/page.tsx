@@ -1,18 +1,71 @@
 
 "use client";
 
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Globe, UsersRound, Send, BarChart3 } from "lucide-react";
+import { Globe, UsersRound, Send, BarChart3, Loader2 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { db } from '@/lib/firebase';
+import { collection, query, where, getCountFromServer } from 'firebase/firestore';
+import { Skeleton } from '@/components/ui/skeleton';
 
-const stats = [
-  { title: "Registered Domains", value: "0", icon: Globe, change: "No data yet" },
-  { title: "Total Subscribers", value: "0", icon: UsersRound, change: "No data yet" },
-  { title: "Campaigns Sent", value: "0", icon: Send, change: "No data yet" },
-  { title: "Avg. Click Rate", value: "N/A", icon: BarChart3, change: "No data yet" },
+interface Stat {
+  title: string;
+  value: string;
+  icon: React.ElementType;
+  change: string;
+  isLoading?: boolean;
+}
+
+const initialStats: Stat[] = [
+  { title: "Registered Domains", value: "0", icon: Globe, change: "Verified domains", isLoading: true },
+  { title: "Total Subscribers", value: "0", icon: UsersRound, change: "Across all domains", isLoading: true },
+  { title: "Campaigns Sent", value: "0", icon: Send, change: "No data yet", isLoading: false }, // Will remain static for now
+  { title: "Avg. Click Rate", value: "N/A", icon: BarChart3, change: "No data yet", isLoading: false }, // Will remain static for now
 ];
 
 export default function DashboardPage() {
+  const [stats, setStats] = useState<Stat[]>(initialStats);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      setIsLoading(true);
+      try {
+        // Fetch verified domains count
+        const domainsQuery = query(collection(db, 'domains'), where('status', '==', 'verified'));
+        const domainsSnapshot = await getCountFromServer(domainsQuery);
+        const verifiedDomainsCount = domainsSnapshot.data().count;
+
+        // Fetch total subscribers count
+        const subscribersQuery = query(collection(db, 'subscribers'));
+        const subscribersSnapshot = await getCountFromServer(subscribersQuery);
+        const totalSubscribersCount = subscribersSnapshot.data().count;
+
+        setStats(prevStats => prevStats.map(stat => {
+          if (stat.title === "Registered Domains") {
+            return { ...stat, value: verifiedDomainsCount.toString(), isLoading: false };
+          }
+          if (stat.title === "Total Subscribers") {
+            return { ...stat, value: totalSubscribersCount.toString(), isLoading: false };
+          }
+          return stat;
+        }));
+
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+        // Update stats to reflect error or keep loading:
+        setStats(prevStats => prevStats.map(stat => ({ ...stat, value: "Error", isLoading: false, change: "Failed to load" })));
+      } finally {
+        setIsLoading(false); // Overall loading for the page
+         // Ensure individual loading states are also false
+        setStats(prevStats => prevStats.map(stat => ({ ...stat, isLoading: false })));
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
   return (
     <div className="container mx-auto">
       <PageHeader
@@ -27,10 +80,14 @@ export default function DashboardPage() {
               <CardTitle className="text-sm font-medium text-muted-foreground">
                 {stat.title}
               </CardTitle>
-              <stat.icon className="h-5 w-5 text-muted-foreground" />
+              {stat.isLoading ? <Loader2 className="h-5 w-5 text-muted-foreground animate-spin" /> : <stat.icon className="h-5 w-5 text-muted-foreground" />}
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-foreground">{stat.value}</div>
+              {stat.isLoading ? (
+                <Skeleton className="h-8 w-1/2 my-1" />
+              ) : (
+                <div className="text-3xl font-bold text-foreground">{stat.value}</div>
+              )}
               <p className="text-xs text-muted-foreground pt-1">{stat.change}</p>
             </CardContent>
           </Card>
@@ -43,7 +100,7 @@ export default function DashboardPage() {
             <CardTitle>Recent Activity</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-muted-foreground">No recent activity to display yet.</p>
+            {isLoading ? <Skeleton className="h-6 w-3/4"/> : <p className="text-muted-foreground">No recent campaign activity to display yet.</p>}
             {/* Placeholder for recent activity feed */}
           </CardContent>
         </Card>
@@ -62,3 +119,4 @@ export default function DashboardPage() {
   );
 }
 
+    

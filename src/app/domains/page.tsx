@@ -27,8 +27,6 @@ const initialFirebaseConfig: FirebaseConfig = {
 };
 
 function generateFirebaseScript(config: FirebaseConfig, domainName: string): string {
-  // Determine the base URL for the API. In a real deployment, you might get this from an env variable.
-  // For simplicity, we'll use a relative path if on the same origin, or prompt user to configure if needed.
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'YOUR_WEBPUSH_PRO_APP_URL';
 
   return `
@@ -37,7 +35,7 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
 
 <script>
-  // Your web app's Firebase configuration
+  // Your web app's Firebase configuration for ${domainName}
   const firebaseConfig = {
     apiKey: "${config.apiKey}",
     authDomain: "${config.authDomain}",
@@ -48,15 +46,22 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
   };
 
   // Initialize Firebase
-  firebase.initializeApp(firebaseConfig);
-  const messaging = firebase.messaging();
+  let firebaseApp;
+  if (!firebase.apps.length) {
+    firebaseApp = firebase.initializeApp(firebaseConfig, '${domainName.replace(/[^a-zA-Z0-9]/g, '')}-firebase-app');
+  } else {
+    firebaseApp = firebase.app('${domainName.replace(/[^a-zA-Z0-9]/g, '')}-firebase-app');
+    if (!firebaseApp) { // Fallback if named app doesn't exist (should not happen with unique names)
+        firebaseApp = firebase.initializeApp(firebaseConfig, '${domainName.replace(/[^a-zA-Z0-9]/g, '')}-firebase-app');
+    }
+  }
+  const messaging = firebase.messaging(firebaseApp);
 
   function requestPermissionAndGetToken() {
     console.log('Requesting permission for ${domainName}...');
     Notification.requestPermission().then((permission) => {
       if (permission === 'granted') {
         console.log('Notification permission granted for ${domainName}.');
-        // Get registration token.
         messaging.getToken({ vapidKey: '${config.vapidKey}' })
           .then((currentToken) => {
             if (currentToken) {
@@ -64,79 +69,109 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
               const subscriberData = {
                 token: currentToken,
                 domainName: '${domainName}',
-                userAgent: navigator.userAgent // Capture userAgent on client
+                userAgent: navigator.userAgent
               };
-              // Send this token to your server
-              fetch('${apiBaseUrl}/api/subscribe', { // Use the determined API base URL
+              fetch('${apiBaseUrl}/api/subscribe', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(subscriberData)
               })
-              .then(response => response.json())
+              .then(response => {
+                if (!response.ok) {
+                  return response.json().then(err => { throw new Error(err.details || err.error || 'Subscription API request failed') });
+                }
+                return response.json();
+              })
               .then(data => {
                 if (data.id) {
                   console.log('Subscription successful for ${domainName}:', data);
-                  alert('Successfully subscribed to notifications for ${domainName}!');
+                  // Optionally, inform the user with a less intrusive method than alert
+                  // e.g., a small banner or a console message for devs.
+                  // alert('Successfully subscribed to notifications for ${domainName}!');
                 } else {
                   console.error('Subscription API response error for ${domainName}:', data);
-                  alert('Subscription to ${domainName} failed. Details: ' + (data.details || data.error || 'Unknown error'));
+                  // alert('Subscription to ${domainName} failed. Details: ' + (data.details || data.error || 'Unknown error'));
                 }
               })
               .catch(err => {
                 console.error('Subscription API fetch error for ${domainName}:', err);
-                alert('Subscription to ${domainName} encountered a network error.');
+                // alert('Subscription to ${domainName} encountered an error: ' + err.message);
               });
             } else {
               console.log('No registration token available for ${domainName}. Request permission to generate one.');
-              alert('Could not get token for ${domainName}. Please ensure notifications are enabled and try again.');
+              // alert('Could not get token for ${domainName}. Please ensure notifications are enabled and try again.');
             }
           }).catch((err) => {
             console.log('An error occurred while retrieving token for ${domainName}. ', err);
-            alert('Error getting token for ${domainName}: ' + err.message);
+            // alert('Error getting token for ${domainName}: ' + err.message);
           });
       } else {
-        console.log('Unable to get permission to notify for ${domainName}.');
-        alert('Permission for notifications was denied for ${domainName}.');
+        console.log('Unable to get permission to notify for ${domainName}. Permission state: ' + permission);
+        // alert('Permission for notifications was ' + permission + ' for ${domainName}.');
       }
     });
   }
 
-  // Example: Trigger subscription on a button click
-  // Consider adding a button with id="subscribeButton-${domainName.replace(/\\./g, '-')}"
-  // and uncommenting the line below.
-  // document.getElementById('subscribeButton-${domainName.replace(/\\./g, '-')}')?.addEventListener('click', requestPermissionAndGetToken);
+  // Automatically try to request permission and subscribe
+  // This will prompt the user if permission is 'default', 
+  // get token if 'granted', or do nothing if 'denied'.
+  // Ensure Firebase is initialized before calling this.
+  if (typeof firebase !== 'undefined' && firebase.messaging.isSupported()) {
+     // Check if service worker is registered - important for getToken
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.ready.then(function(registration) {
+        console.log('Service Worker is ready for ${domainName}. Attempting to get token.');
+        requestPermissionAndGetToken();
+      }).catch(function(error) {
+        console.error('Service Worker registration failed for ${domainName}: ', error);
+      });
+    } else {
+      console.warn('Service workers are not supported in this browser for ${domainName}. Push notifications will not work.');
+    }
+  } else {
+    console.warn('Firebase Messaging is not supported in this browser or an error occurred during Firebase initialization for ${domainName}.');
+  }
 
-  // Or, you might want to call requestPermissionAndGetToken() automatically under certain conditions,
-  // e.g., after a user logs in or completes a specific action.
 </script>
 
 <!-- 
   REMEMBER: You also need a firebase-messaging-sw.js file in your public/root directory of ${domainName}.
   It should contain at least:
 
+  // Give this script a unique name to avoid conflicts if you have multiple service workers.
+  // Example: firebase-messaging-sw-${domainName.replace(/\\./g, '-')}.js
+
   importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
   importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
   // Initialize Firebase with the same config used in your web page
-  firebase.initializeApp({
-    apiKey: "${config.apiKey}",
-    authDomain: "${config.authDomain}",
-    projectId: "${config.projectId}",
-    storageBucket: "${config.storageBucket}",
-    messagingSenderId: "${config.messagingSenderId}",
-    appId: "${config.appId}"
-  });
+  // Important: Use a unique app name if you might have multiple Firebase apps on the same origin.
+  const appName = '${domainName.replace(/[^a-zA-Z0-9]/g, '')}-firebase-app-sw';
+  let firebaseAppSW;
+  try {
+    firebaseAppSW = firebase.app(appName);
+  } catch (e) { // If app doesn't exist, initialize it
+    firebaseAppSW = firebase.initializeApp({
+      apiKey: "${config.apiKey}",
+      authDomain: "${config.authDomain}",
+      projectId: "${config.projectId}",
+      storageBucket: "${config.storageBucket}",
+      messagingSenderId: "${config.messagingSenderId}",
+      appId: "${config.appId}"
+    }, appName);
+  }
   
-  const messaging = firebase.messaging();
+  const messagingSW = firebase.messaging(firebaseAppSW);
 
   // Optional: Handle background messages
-  messaging.onBackgroundMessage((payload) => {
+  messagingSW.onBackgroundMessage((payload) => {
     console.log('[firebase-messaging-sw.js] Received background message for ${domainName}', payload);
     // Customize notification here
     const notificationTitle = payload.notification?.title || 'New Message';
     const notificationOptions = {
       body: payload.notification?.body || 'You have a new message.',
       icon: payload.notification?.icon || '/default-icon.png', // Ensure this icon exists
+      // data: payload.data // Pass along data for click actions
     };
     self.registration.showNotification(notificationTitle, notificationOptions);
   });
@@ -212,13 +247,13 @@ export default function DomainsPage() {
     }
 
     try {
-      const newDomainData: Omit<Domain, 'id' | 'addedDate' | 'lastVerificationAttempt'> & { addedDate: Timestamp, lastVerificationAttempt: Timestamp } = {
+      const newDomainData: Omit<Domain, 'id' | 'addedDate' | 'lastVerificationAttempt'> & { addedDate: Timestamp, lastVerificationAttempt: Timestamp | null } = {
         name: newDomainName,
         status: 'pending' as Domain['status'], 
         firebaseConfig: { ...newFirebaseConfig },
         verificationToken: verificationToken,
         addedDate: Timestamp.fromDate(new Date()),
-        lastVerificationAttempt: Timestamp.fromDate(new Date()),
+        lastVerificationAttempt: null, // Set to null initially, updated on verification attempt
       };
       
       const docRef = await addDoc(collection(db, 'domains'), newDomainData);
@@ -226,7 +261,7 @@ export default function DomainsPage() {
         id: docRef.id, 
         ...newDomainData, 
         addedDate: newDomainData.addedDate.toDate().toISOString().split('T')[0],
-        lastVerificationAttempt: newDomainData.lastVerificationAttempt.toDate().toISOString(),
+        lastVerificationAttempt: null, // Keep consistent
        } as Domain, ...prev]);
       setNewDomainName('');
       setNewFirebaseConfig(initialFirebaseConfig);
@@ -251,45 +286,60 @@ export default function DomainsPage() {
     }
 
     setVerifyingDomainId(domainId);
+    const newVerificationTime = Timestamp.fromDate(new Date());
     try {
-      // In a real application, this would trigger a backend check.
-      // For this example, we simulate a successful verification.
-      // IMPORTANT: Replace this with actual DNS check logic in a production environment.
       console.log(`Simulating verification for domain ${domainToVerify.name} (ID: ${domainId}) with token ${token}`);
-      
-      // Simulate a delay for verification
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
+
+      // In a real app, you would make an API call here to your backend,
+      // which would then perform the DNS TXT record check.
+      // For this example, we directly update Firestore.
+      // const isActuallyVerified = await checkDnsRecord(domainToVerify.name, `webpush-pro-verification=${token}`);
+      // For now, assume true:
+      const isActuallyVerified = true; 
 
       const domainRef = doc(db, "domains", domainId);
-      const newVerificationTime = Timestamp.fromDate(new Date());
-      await updateDoc(domainRef, {
-        status: 'verified',
-        lastVerificationAttempt: newVerificationTime,
-      });
 
-      setDomains(prevDomains => 
-        prevDomains.map(d => 
-          d.id === domainId ? { ...d, status: 'verified', lastVerificationAttempt: newVerificationTime.toDate().toISOString() } : d
-        )
-      );
-      toast({ title: "Verification Successful", description: `Domain ${domainToVerify.name} is now verified.` });
+      if (isActuallyVerified) {
+        await updateDoc(domainRef, {
+          status: 'verified',
+          lastVerificationAttempt: newVerificationTime,
+        });
+        setDomains(prevDomains => 
+          prevDomains.map(d => 
+            d.id === domainId ? { ...d, status: 'verified', lastVerificationAttempt: newVerificationTime.toDate().toISOString() } : d
+          )
+        );
+        toast({ title: "Verification Successful", description: `Domain ${domainToVerify.name} is now verified.` });
+      } else {
+        await updateDoc(domainRef, {
+          status: 'error', // Set to error if verification fails
+          lastVerificationAttempt: newVerificationTime,
+        });
+        setDomains(prevDomains => 
+          prevDomains.map(d => 
+            d.id === domainId ? { ...d, status: 'error', lastVerificationAttempt: newVerificationTime.toDate().toISOString() } : d
+          )
+        );
+        toast({ title: "Verification Failed", description: `Could not verify ${domainToVerify.name}. Please ensure the TXT record is correctly set up and has propagated.`, variant: "destructive" });
+      }
     } catch (error) {
       console.error("Error verifying domain: ", error);
-      const domainName = domains.find(d => d.id === domainId)?.name || 'the domain';
-      toast({ title: "Verification Failed", description: `Could not verify ${domainName}. Please ensure the TXT record is correctly set up and has propagated.`, variant: "destructive" });
-      
-      // Optionally update status to error or keep as pending
       const domainRef = doc(db, "domains", domainId);
-      const newVerificationTime = Timestamp.fromDate(new Date());
-      await updateDoc(domainRef, {
-        // status: 'error', // Or keep as 'pending'
-        lastVerificationAttempt: newVerificationTime,
-      });
-       setDomains(prevDomains => 
-        prevDomains.map(d => 
-          d.id === domainId ? { ...d, /* status: 'error', */ lastVerificationAttempt: newVerificationTime.toDate().toISOString() } : d
-        )
-      );
+      try { // Attempt to update lastVerificationAttempt even on error
+        await updateDoc(domainRef, {
+          lastVerificationAttempt: newVerificationTime,
+          status: 'error', // Ensure status reflects error
+        });
+        setDomains(prevDomains => 
+          prevDomains.map(d => 
+            d.id === domainId ? { ...d, status: 'error', lastVerificationAttempt: newVerificationTime.toDate().toISOString() } : d
+          )
+        );
+      } catch (updateError) {
+        console.error("Error updating domain after verification failure: ", updateError);
+      }
+      toast({ title: "Verification Error", description: `An error occurred while trying to verify ${domainToVerify.name}.`, variant: "destructive" });
     } finally {
       setVerifyingDomainId(null);
     }
@@ -352,7 +402,7 @@ export default function DomainsPage() {
                 >
                   Firebase documentation <ExternalLink className="h-3 w-3 ml-1" />
                 </a>.
-                 Ensure this Firebase project is set up for Web Push (FCM).
+                 Ensure this Firebase project is set up for Web Push (FCM) and you have the VAPID key (Public Key from Cloud Messaging settings).
               </p>
               {(Object.keys(newFirebaseConfig) as Array<keyof FirebaseConfig>).map((key) => (
                 <div key={key}>
@@ -360,13 +410,14 @@ export default function DomainsPage() {
                   <Input 
                     id={key} 
                     name={key} 
-                    type={key.includes('Key') || key.includes('Id') ? 'password' : 'text'} 
+                    type={(key.includes('Key') || key.includes('Id')) && key !== 'vapidKey' ? 'password' : 'text'} 
                     placeholder={`Firebase ${key.replace(/([A-Z])/g, ' $1').trim()}`} 
                     value={newFirebaseConfig[key]} 
                     onChange={handleFirebaseConfigChange} 
                     required 
                     className="text-base"
                   />
+                   {key === 'vapidKey' && <p className="text-xs text-muted-foreground mt-1">This is the "Public key" or "Web push certificate (key pair)" from Firebase Project Settings &gt; Cloud Messaging.</p>}
                 </div>
               ))}
             </fieldset>
@@ -444,14 +495,14 @@ export default function DomainsPage() {
                 </CardContent>
               )}
               <CardFooter className="flex flex-wrap justify-end gap-2">
-                {domain.status === 'pending' && (
+                {(domain.status === 'pending' || domain.status === 'error') && (
                   <Button 
                     variant="default" 
                     onClick={() => handleVerifyDomain(domain.id, domain.verificationToken)}
                     disabled={verifyingDomainId === domain.id}
                   >
                     {verifyingDomainId === domain.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                    {verifyingDomainId === domain.id ? "Verifying..." : "Verify Domain"}
+                    {verifyingDomainId === domain.id ? "Verifying..." : (domain.status === 'error' ? "Retry Verification" : "Verify Domain")}
                   </Button>
                 )}
                 {domain.status === 'verified' && ( 
@@ -467,7 +518,7 @@ export default function DomainsPage() {
                           <DialogTitle>Integration Script for {selectedDomainForScript.name}</DialogTitle>
                           <DialogDescription>
                             Copy and paste this script into your website's HTML.
-                            Also create a <code className="font-mono bg-muted px-1 rounded-sm">firebase-messaging-sw.js</code> file in your site's root (see comments in script).
+                            Also create a <code className="font-mono bg-muted px-1 rounded-sm">firebase-messaging-sw.js</code> file in your site's root (see comments in script for content).
                           </DialogDescription>
                         </DialogHeader>
                         <div className="flex-grow overflow-auto p-1">
@@ -489,20 +540,6 @@ export default function DomainsPage() {
                     )}
                   </Dialog>
                 )}
-                 {domain.status === 'error' && (
-                     <Badge variant="destructive" className="flex items-center gap-1">
-                       <AlertTriangle className="h-3 w-3" /> Verification Error 
-                       <Button 
-                          variant="link" 
-                          size="sm" 
-                          className="p-0 h-auto text-xs text-destructive-foreground hover:text-destructive-foreground/80"
-                          onClick={() => handleVerifyDomain(domain.id, domain.verificationToken)}
-                          disabled={verifyingDomainId === domain.id}
-                        >
-                          (Retry?)
-                        </Button>
-                     </Badge>
-                  )}
               </CardFooter>
             </Card>
           ))
@@ -511,3 +548,5 @@ export default function DomainsPage() {
     </div>
   );
 }
+
+    
