@@ -1,18 +1,19 @@
 
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Code2, CheckCircle, AlertTriangle, Clock, ExternalLink, Globe } from "lucide-react";
+import { PlusCircle, Code2, CheckCircle, AlertTriangle, Clock, ExternalLink, Globe, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import type { Domain, FirebaseConfig } from '@/lib/types';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { useToast } from '@/hooks/use-toast';
-
-const initialDomains: Domain[] = [];
+import { db } from '@/lib/firebase';
+import { collection, addDoc, getDocs, Timestamp, query, orderBy } from 'firebase/firestore';
+import { Skeleton } from '@/components/ui/skeleton';
 
 const initialFirebaseConfig: FirebaseConfig = {
   apiKey: '',
@@ -113,18 +114,47 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
 
 
 export default function DomainsPage() {
-  const [domains, setDomains] = useState<Domain[]>(initialDomains);
+  const [domains, setDomains] = useState<Domain[]>([]);
+  const [isLoadingDomains, setIsLoadingDomains] = useState(true);
+  const [isAddingDomain, setIsAddingDomain] = useState(false);
   const [newDomainName, setNewDomainName] = useState('');
   const [newFirebaseConfig, setNewFirebaseConfig] = useState<FirebaseConfig>(initialFirebaseConfig);
   const [selectedDomainForScript, setSelectedDomainForScript] = useState<Domain | null>(null);
   const { toast } = useToast();
+
+  useEffect(() => {
+    const fetchDomains = async () => {
+      setIsLoadingDomains(true);
+      try {
+        const domainsCollection = collection(db, 'domains');
+        const q = query(domainsCollection, orderBy('addedDate', 'desc'));
+        const querySnapshot = await getDocs(q);
+        const domainsData = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            ...data,
+            // Ensure addedDate is a string if it's stored as Timestamp
+            addedDate: data.addedDate instanceof Timestamp ? data.addedDate.toDate().toISOString().split('T')[0] : data.addedDate,
+          } as Domain;
+        });
+        setDomains(domainsData);
+      } catch (error) {
+        console.error("Error fetching domains: ", error);
+        toast({ title: "Error", description: "Could not fetch domains from database.", variant: "destructive" });
+      } finally {
+        setIsLoadingDomains(false);
+      }
+    };
+    fetchDomains();
+  }, [toast]);
 
   const handleFirebaseConfigChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setNewFirebaseConfig(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleAddDomain = (e: React.FormEvent) => {
+  const handleAddDomain = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newDomainName.trim()) {
       toast({ title: "Error", description: "Domain name cannot be empty.", variant: "destructive" });
@@ -137,17 +167,25 @@ export default function DomainsPage() {
       }
     }
 
-    const newDomain: Domain = {
-      id: String(Date.now()),
-      name: newDomainName,
-      addedDate: new Date().toISOString().split('T')[0],
-      status: 'pending', 
-      firebaseConfig: { ...newFirebaseConfig }
-    };
-    setDomains(prev => [newDomain, ...prev]);
-    setNewDomainName('');
-    setNewFirebaseConfig(initialFirebaseConfig);
-    toast({ title: "Success", description: `Domain ${newDomainName} added (pending verification).` });
+    setIsAddingDomain(true);
+    try {
+      const newDomainData = {
+        name: newDomainName,
+        addedDate: new Date().toISOString().split('T')[0], // Storing as ISO string date part
+        status: 'pending' as Domain['status'], 
+        firebaseConfig: { ...newFirebaseConfig }
+      };
+      const docRef = await addDoc(collection(db, 'domains'), newDomainData);
+      setDomains(prev => [{ id: docRef.id, ...newDomainData }, ...prev]);
+      setNewDomainName('');
+      setNewFirebaseConfig(initialFirebaseConfig);
+      toast({ title: "Success", description: `Domain ${newDomainName} added (pending verification).` });
+    } catch (error) {
+      console.error("Error adding domain: ", error);
+      toast({ title: "Error", description: "Could not save domain to database.", variant: "destructive" });
+    } finally {
+      setIsAddingDomain(false);
+    }
   };
   
   const getStatusIcon = (status: Domain['status']) => {
@@ -230,15 +268,21 @@ export default function DomainsPage() {
               </div>
             </fieldset>
 
-            <Button type="submit" className="w-full sm:w-auto">
-              <PlusCircle className="mr-2 h-5 w-5" /> Add Domain
+            <Button type="submit" className="w-full sm:w-auto" disabled={isAddingDomain}>
+              {isAddingDomain ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <PlusCircle className="mr-2 h-5 w-5" />}
+              {isAddingDomain ? "Adding..." : "Add Domain"}
             </Button>
           </form>
         </CardContent>
       </Card>
 
       <div className="space-y-6">
-        {domains.length === 0 ? (
+        {isLoadingDomains ? (
+          <>
+            <Skeleton className="h-32 w-full rounded-lg" />
+            <Skeleton className="h-32 w-full rounded-lg" />
+          </>
+        ) : domains.length === 0 ? (
           <div className="text-center py-10 text-muted-foreground">
             <Globe className="mx-auto h-12 w-12 mb-4 opacity-50" />
             <p className="text-xl font-semibold">No domains added yet.</p>
@@ -303,4 +347,3 @@ export default function DomainsPage() {
     </div>
   );
 }
-
