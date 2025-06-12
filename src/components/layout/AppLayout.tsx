@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from "react";
@@ -39,7 +40,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
               <SidebarMenu className="px-2 py-4 space-y-1">
                 {NAV_LINKS.map((link) => (
                   <SidebarMenuItem key={link.href}>
-                    <Link href={link.href} legacyBehavior passHref>
+                    <Link href={link.href}>
                       <SidebarMenuButton
                         className={cn(
                           "w-full justify-start",
