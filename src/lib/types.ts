@@ -1,9 +1,12 @@
+
 export interface Domain {
   id: string;
   name: string;
   addedDate: string;
   status: 'verified' | 'pending' | 'error';
-  firebaseConfig: FirebaseConfig; // Made non-optional
+  firebaseConfig: FirebaseConfig;
+  verificationToken?: string; // For DNS verification
+  lastVerificationAttempt?: string; // Optional: To track last attempt
 }
 
 export interface FirebaseConfig {
@@ -35,4 +38,3 @@ export interface Campaign {
   status: 'sent' | 'draft' | 'failed';
   recipients: number;
 }
-
