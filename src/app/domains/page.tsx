@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState } from 'react';
@@ -5,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PlusCircle, Code2, CheckCircle, AlertTriangle, Clock } from "lucide-react";
+import { PlusCircle, Code2, CheckCircle, AlertTriangle, Clock, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import type { Domain, FirebaseConfig } from '@/lib/types';
 import { PageHeader } from '@/components/shared/PageHeader';
@@ -129,10 +130,9 @@ export default function DomainsPage() {
       toast({ title: "Error", description: "Domain name cannot be empty.", variant: "destructive" });
       return;
     }
-    // Basic validation for Firebase config (presence)
     for (const key in newFirebaseConfig) {
-      if (!newFirebaseConfig[key as keyof FirebaseConfig].trim()) {
-        toast({ title: "Error", description: `Firebase ${key} cannot be empty.`, variant: "destructive" });
+      if (!newFirebaseConfig[key as keyof FirebaseConfig]?.trim()) {
+        toast({ title: "Error", description: `Firebase ${key.replace(/([A-Z])/g, ' $1').trim()} cannot be empty.`, variant: "destructive" });
         return;
       }
     }
@@ -141,12 +141,12 @@ export default function DomainsPage() {
       id: String(Date.now()),
       name: newDomainName,
       addedDate: new Date().toISOString().split('T')[0],
-      status: 'pending', // Mock: In a real app, this would involve verification
+      status: 'pending', 
       firebaseConfig: { ...newFirebaseConfig }
     };
     setDomains(prev => [newDomain, ...prev]);
     setNewDomainName('');
-    setNewFirebaseConfig(initialFirebaseConfig); // Reset Firebase config form
+    setNewFirebaseConfig(initialFirebaseConfig);
     toast({ title: "Success", description: `Domain ${newDomainName} added (pending verification).` });
   };
   
@@ -189,6 +189,17 @@ export default function DomainsPage() {
             
             <fieldset className="space-y-4 p-4 border rounded-md">
               <legend className="text-sm font-medium text-muted-foreground px-1">Firebase Configuration</legend>
+              <p className="text-xs text-muted-foreground mb-3 px-1">
+                Need help finding these values? Refer to the 
+                <a 
+                  href="https://firebase.google.com/docs/web/setup#config-object" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-primary hover:underline inline-flex items-center ml-1"
+                >
+                  Firebase documentation <ExternalLink className="h-3 w-3 ml-1" />
+                </a>.
+              </p>
               <div>
                 <Label htmlFor="apiKey">API Key</Label>
                 <Input id="apiKey" name="apiKey" type="text" placeholder="Firebase API Key" value={newFirebaseConfig.apiKey} onChange={handleFirebaseConfigChange} required className="text-base"/>
@@ -228,7 +239,11 @@ export default function DomainsPage() {
 
       <div className="space-y-6">
         {domains.length === 0 ? (
-          <p className="text-center text-muted-foreground py-10">No domains added yet. Add your first domain to get started!</p>
+          <div className="text-center py-10 text-muted-foreground">
+            <Globe className="mx-auto h-12 w-12 mb-4 opacity-50" />
+            <p className="text-xl font-semibold">No domains added yet.</p>
+            <p>Add your first domain to get started!</p>
+          </div>
         ) : (
           domains.map((domain) => (
             <Card key={domain.id} className="shadow-md hover:shadow-lg transition-shadow duration-300 rounded-lg">
@@ -243,7 +258,7 @@ export default function DomainsPage() {
                 <CardDescription>Added on: {new Date(domain.addedDate).toLocaleDateString()}</CardDescription>
               </CardHeader>
               <CardFooter className="flex justify-end gap-2">
-                {domain.status === 'verified' && ( // Get script only if verified
+                {domain.status === 'verified' && ( 
                   <Dialog onOpenChange={(open) => !open && setSelectedDomainForScript(null)}>
                     <DialogTrigger asChild>
                       <Button variant="outline" onClick={() => setSelectedDomainForScript(domain)}>
@@ -288,3 +303,4 @@ export default function DomainsPage() {
     </div>
   );
 }
+

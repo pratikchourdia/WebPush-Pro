@@ -1,3 +1,4 @@
+
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -5,10 +6,10 @@ import { Globe, UsersRound, Send, BarChart3 } from "lucide-react";
 import { PageHeader } from "@/components/shared/PageHeader";
 
 const stats = [
-  { title: "Registered Domains", value: "5", icon: Globe, change: "+2 this month" },
-  { title: "Total Subscribers", value: "1,250", icon: UsersRound, change: "+150 this week" },
-  { title: "Campaigns Sent", value: "32", icon: Send, change: "+5 last 7 days" },
-  { title: "Avg. Click Rate", value: "12.5%", icon: BarChart3, change: "-0.5% vs last campaign" },
+  { title: "Registered Domains", value: "0", icon: Globe, change: "No data yet" },
+  { title: "Total Subscribers", value: "0", icon: UsersRound, change: "No data yet" },
+  { title: "Campaigns Sent", value: "0", icon: Send, change: "No data yet" },
+  { title: "Avg. Click Rate", value: "N/A", icon: BarChart3, change: "No data yet" },
 ];
 
 export default function DashboardPage() {
@@ -60,3 +61,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+
