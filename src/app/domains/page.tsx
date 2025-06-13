@@ -28,6 +28,8 @@ const initialFirebaseConfig: FirebaseConfig = {
 
 function generateFirebaseScript(config: FirebaseConfig, domainName: string): string {
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'YOUR_WEBPUSH_PRO_APP_URL';
+  const clientAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app';
+  const swAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app-sw';
 
   return `
 <!-- Add this to your website's <head> or before </body> -->
@@ -45,15 +47,12 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
     appId: "${config.appId}"
   };
 
-  // Initialize Firebase
+  const clientAppName = '${clientAppName}';
   let firebaseApp;
-  if (!firebase.apps.length) {
-    firebaseApp = firebase.initializeApp(firebaseConfig, '${domainName.replace(/[^a-zA-Z0-9]/g, '')}-firebase-app');
-  } else {
-    firebaseApp = firebase.app('${domainName.replace(/[^a-zA-Z0-9]/g, '')}-firebase-app');
-    if (!firebaseApp) { // Fallback if named app doesn't exist (should not happen with unique names)
-        firebaseApp = firebase.initializeApp(firebaseConfig, '${domainName.replace(/[^a-zA-Z0-9]/g, '')}-firebase-app');
-    }
+  try {
+    firebaseApp = firebase.app(clientAppName);
+  } catch (e) {
+    firebaseApp = firebase.initializeApp(firebaseConfig, clientAppName);
   }
   const messaging = firebase.messaging(firebaseApp);
 
@@ -85,42 +84,30 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
               .then(data => {
                 if (data.id) {
                   console.log('Subscription successful for ${domainName}:', data);
-                  // Optionally, inform the user with a less intrusive method than alert
-                  // e.g., a small banner or a console message for devs.
-                  // alert('Successfully subscribed to notifications for ${domainName}!');
+                  // Optionally, inform the user with a less intrusive method.
                 } else {
                   console.error('Subscription API response error for ${domainName}:', data);
-                  // alert('Subscription to ${domainName} failed. Details: ' + (data.details || data.error || 'Unknown error'));
                 }
               })
               .catch(err => {
                 console.error('Subscription API fetch error for ${domainName}:', err);
-                // alert('Subscription to ${domainName} encountered an error: ' + err.message);
               });
             } else {
               console.log('No registration token available for ${domainName}. Request permission to generate one.');
-              // alert('Could not get token for ${domainName}. Please ensure notifications are enabled and try again.');
             }
           }).catch((err) => {
             console.log('An error occurred while retrieving token for ${domainName}. ', err);
-            // alert('Error getting token for ${domainName}: ' + err.message);
           });
       } else {
         console.log('Unable to get permission to notify for ${domainName}. Permission state: ' + permission);
-        // alert('Permission for notifications was ' + permission + ' for ${domainName}.');
       }
     });
   }
 
-  // Automatically try to request permission and subscribe
-  // This will prompt the user if permission is 'default', 
-  // get token if 'granted', or do nothing if 'denied'.
-  // Ensure Firebase is initialized before calling this.
   if (typeof firebase !== 'undefined' && firebase.messaging.isSupported()) {
-     // Check if service worker is registered - important for getToken
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.ready.then(function(registration) {
-        console.log('Service Worker is ready for ${domainName}. Attempting to get token.');
+        console.log('Service Worker is ready for ${domainName} (Registration:', registration, '). Attempting to get token.');
         requestPermissionAndGetToken();
       }).catch(function(error) {
         console.error('Service Worker registration failed for ${domainName}: ', error);
@@ -135,21 +122,20 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
 </script>
 
 <!-- 
-  REMEMBER: You also need a firebase-messaging-sw.js file in your public/root directory of ${domainName}.
-  It should contain at least:
+  REMEMBER: You MUST create a firebase-messaging-sw.js file in your public/root directory of ${domainName}.
+  It should contain AT LEAST the following:
 
-  // Give this script a unique name to avoid conflicts if you have multiple service workers.
-  // Example: firebase-messaging-sw-${domainName.replace(/\\./g, '-')}.js
+  // File: firebase-messaging-sw.js
 
   importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
   importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-  // Initialize Firebase with the same config used in your web page
-  // Important: Use a unique app name if you might have multiple Firebase apps on the same origin.
-  const appName = '${domainName.replace(/[^a-zA-Z0-9]/g, '')}-firebase-app-sw';
+  // Initialize Firebase with the same config used in your web page.
+  // Use a unique app name for the service worker's Firebase instance.
+  const swAppName = '${swAppName}';
   let firebaseAppSW;
   try {
-    firebaseAppSW = firebase.app(appName);
+    firebaseAppSW = firebase.app(swAppName);
   } catch (e) { // If app doesn't exist, initialize it
     firebaseAppSW = firebase.initializeApp({
       apiKey: "${config.apiKey}",
@@ -158,7 +144,7 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
       storageBucket: "${config.storageBucket}",
       messagingSenderId: "${config.messagingSenderId}",
       appId: "${config.appId}"
-    }, appName);
+    }, swAppName);
   }
   
   const messagingSW = firebase.messaging(firebaseAppSW);
@@ -170,7 +156,7 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
     const notificationTitle = payload.notification?.title || 'New Message';
     const notificationOptions = {
       body: payload.notification?.body || 'You have a new message.',
-      icon: payload.notification?.icon || '/default-icon.png', // Ensure this icon exists
+      icon: payload.notification?.icon || '/firebase-logo.png', // Default icon, ensure it exists
       // data: payload.data // Pass along data for click actions
     };
     self.registration.showNotification(notificationTitle, notificationOptions);
@@ -253,7 +239,7 @@ export default function DomainsPage() {
         firebaseConfig: { ...newFirebaseConfig },
         verificationToken: verificationToken,
         addedDate: Timestamp.fromDate(new Date()),
-        lastVerificationAttempt: null, // Set to null initially, updated on verification attempt
+        lastVerificationAttempt: null, 
       };
       
       const docRef = await addDoc(collection(db, 'domains'), newDomainData);
@@ -261,7 +247,7 @@ export default function DomainsPage() {
         id: docRef.id, 
         ...newDomainData, 
         addedDate: newDomainData.addedDate.toDate().toISOString().split('T')[0],
-        lastVerificationAttempt: null, // Keep consistent
+        lastVerificationAttempt: null, 
        } as Domain, ...prev]);
       setNewDomainName('');
       setNewFirebaseConfig(initialFirebaseConfig);
@@ -289,13 +275,8 @@ export default function DomainsPage() {
     const newVerificationTime = Timestamp.fromDate(new Date());
     try {
       console.log(`Simulating verification for domain ${domainToVerify.name} (ID: ${domainId}) with token ${token}`);
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 1500)); 
 
-      // In a real app, you would make an API call here to your backend,
-      // which would then perform the DNS TXT record check.
-      // For this example, we directly update Firestore.
-      // const isActuallyVerified = await checkDnsRecord(domainToVerify.name, `webpush-pro-verification=${token}`);
-      // For now, assume true:
       const isActuallyVerified = true; 
 
       const domainRef = doc(db, "domains", domainId);
@@ -313,7 +294,7 @@ export default function DomainsPage() {
         toast({ title: "Verification Successful", description: `Domain ${domainToVerify.name} is now verified.` });
       } else {
         await updateDoc(domainRef, {
-          status: 'error', // Set to error if verification fails
+          status: 'error', 
           lastVerificationAttempt: newVerificationTime,
         });
         setDomains(prevDomains => 
@@ -326,10 +307,10 @@ export default function DomainsPage() {
     } catch (error) {
       console.error("Error verifying domain: ", error);
       const domainRef = doc(db, "domains", domainId);
-      try { // Attempt to update lastVerificationAttempt even on error
+      try { 
         await updateDoc(domainRef, {
           lastVerificationAttempt: newVerificationTime,
-          status: 'error', // Ensure status reflects error
+          status: 'error', 
         });
         setDomains(prevDomains => 
           prevDomains.map(d => 
