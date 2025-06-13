@@ -7,11 +7,11 @@ import type { Subscriber } from '@/lib/types';
 // Helper function to create CORS headers
 function getCorsHeaders(requestOrigin: string | null) {
   const headers = new Headers();
-  // Dynamically set Allow-Origin to the request's origin if it exists, otherwise '*'
-  // For production, you might want a more restrictive list based on verified domains.
-  headers.set('Access-Control-Allow-Origin', requestOrigin || '*');
+  // If requestOrigin is null or an empty string, fallback to '*'
+  // Otherwise, use the specific origin from the request.
+  headers.set('Access-Control-Allow-Origin', requestOrigin && requestOrigin !== 'null' ? requestOrigin : '*');
   headers.set('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization'); // Added Authorization for potential future use
+  headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization'); // Allowing Content-Type and potentially Authorization
   headers.set('Access-Control-Max-Age', '86400'); // Cache preflight request for 1 day
   return headers;
 }
@@ -19,23 +19,25 @@ function getCorsHeaders(requestOrigin: string | null) {
 // Handler for OPTIONS preflight requests
 export async function OPTIONS(request: NextRequest) {
   const requestOrigin = request.headers.get('origin');
+  console.log(`[API /api/subscribe OPTIONS] Request Origin header: ${requestOrigin}`);
   const corsHeaders = getCorsHeaders(requestOrigin);
   return new NextResponse(null, { status: 204, headers: corsHeaders });
 }
 
 // Handler for POST requests
 export async function POST(request: NextRequest) {
-  console.log('[API /api/subscribe] Received POST request');
   const requestOrigin = request.headers.get('origin');
+  console.log(`[API /api/subscribe POST] Request Origin header: ${requestOrigin}`);
+  // Get CORS headers for this specific request origin
   const corsHeaders = getCorsHeaders(requestOrigin);
 
   try {
     const body = await request.json();
-    console.log('[API /api/subscribe] Request body:', body);
+    console.log('[API /api/subscribe POST] Request body:', body);
     const { token, domainName, userAgent } = body;
 
     if (!token || !domainName) {
-      console.warn('[API /api/subscribe] Missing token or domainName in request body');
+      console.warn('[API /api/subscribe POST] Missing token or domainName in request body');
       return NextResponse.json({ error: 'Missing token or domainName' }, { status: 400, headers: corsHeaders });
     }
 
@@ -46,14 +48,14 @@ export async function POST(request: NextRequest) {
       subscribedAt: serverTimestamp() as Timestamp, // Firestore will set this
     };
 
-    console.log('[API /api/subscribe] Attempting to add subscriber to Firestore:', newSubscriber);
+    console.log('[API /api/subscribe POST] Attempting to add subscriber to Firestore:', newSubscriber);
     const docRef = await addDoc(collection(db, 'subscribers'), newSubscriber);
-    console.log('[API /api/subscribe] Subscriber added successfully to Firestore with ID:', docRef.id);
+    console.log('[API /api/subscribe POST] Subscriber added successfully to Firestore with ID:', docRef.id);
     
     return NextResponse.json({ message: 'Subscriber added successfully', id: docRef.id }, { status: 201, headers: corsHeaders });
 
   } catch (error) {
-    console.error('[API /api/subscribe] Error adding subscriber:', error);
+    console.error('[API /api/subscribe POST] Error adding subscriber:', error);
     let errorMessage = 'Internal Server Error';
     if (error instanceof Error) {
         errorMessage = error.message;
