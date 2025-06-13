@@ -28,13 +28,12 @@ const initialFirebaseConfig: FirebaseConfig = {
 
 function generateFirebaseScript(config: FirebaseConfig, domainName: string): string {
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'YOUR_WEBPUSH_PRO_APP_URL';
-  // Generate unique app names based on domain to avoid conflicts
   const clientAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app';
   const swAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app-sw';
 
   return `
 // WebPush Pro Integration Script for ${domainName}
-// Version: 1.1 (Enhanced Logging)
+// Version: 1.2 (Robust Initialization & Debugging)
 
 console.log('[WebPushPro] Initializing script for ${domainName}...');
 
@@ -53,31 +52,57 @@ const SW_APP_NAME = '${swAppName}';
 
 // --- Firebase Initialization (Client) ---
 let firebaseApp;
-if (typeof firebase !== 'undefined') {
-  try {
-    firebaseApp = firebase.app(CLIENT_APP_NAME);
-    console.log('[WebPushPro] Re-using existing Firebase app instance:', CLIENT_APP_NAME);
-  } catch (e) {
-    try {
-      firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
-      console.log('[WebPushPro] Firebase app instance initialized:', CLIENT_APP_NAME);
-    } catch (initError) {
-      console.error('[WebPushPro] Error initializing Firebase app (' + CLIENT_APP_NAME + '):', initError);
+let messaging; // Declare messaging here
+
+if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
+    const existingApp = firebase.apps.find(app => app.name === CLIENT_APP_NAME);
+    if (existingApp) {
+        firebaseApp = existingApp;
+        console.log('[WebPushPro] Using existing Firebase app instance:', CLIENT_APP_NAME);
+    } else {
+        try {
+            firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
+            console.log('[WebPushPro] Firebase app instance initialized:', CLIENT_APP_NAME);
+        } catch (initError) {
+            console.error('[WebPushPro] Error initializing Firebase app (' + CLIENT_APP_NAME + '):', initError);
+            firebaseApp = null; // Ensure firebaseApp is null on error
+        }
     }
-  }
 } else {
-  console.error('[WebPushPro] Firebase library not loaded. Ensure firebase-app-compat.js is included.');
+    console.error('[WebPushPro] Firebase library not fully loaded (firebase or initializeApp is missing). Ensure firebase-app-compat.js is included.');
+    firebaseApp = null;
 }
 
-const messaging = firebaseApp && firebase.messaging ? firebase.messaging(firebaseApp) : null;
-if (!messaging) {
-  console.error('[WebPushPro] Firebase Messaging could not be initialized. Ensure firebase-messaging-compat.js is included and app was initialized.');
+// --- Messaging Initialization and Support Check ---
+if (firebaseApp) { // Proceed only if app was initialized or retrieved
+    if (typeof firebase.messaging === 'function' && typeof firebase.messaging.isSupported === 'function') {
+        if (firebase.messaging.isSupported()) {
+            console.log('[WebPushPro] Firebase Messaging is supported by this browser.');
+            try {
+                messaging = firebase.messaging(firebaseApp); // Initialize messaging with the specific app
+                console.log('[WebPushPro] Firebase Messaging service initialized for app:', CLIENT_APP_NAME);
+            } catch (messagingError) {
+                console.error('[WebPushPro] Error initializing Firebase Messaging service:', messagingError);
+                messaging = null;
+            }
+        } else {
+            console.warn('[WebPushPro] Firebase Messaging is not supported in this browser for ${domainName}. Push notifications will not work.');
+            messaging = null;
+        }
+    } else {
+        console.error('[WebPushPro] Firebase Messaging library (firebase.messaging or firebase.messaging.isSupported) not loaded. Ensure firebase-messaging-compat.js is included.');
+        messaging = null;
+    }
+} else {
+    console.log('[WebPushPro] Firebase app not available, skipping Messaging initialization.');
+    messaging = null;
 }
+
 
 // --- Subscription Logic ---
 function requestPermissionAndGetToken() {
-  if (!messaging) {
-    console.error('[WebPushPro] Messaging not available, cannot request permission or get token for ${domainName}.');
+  if (!messaging) { // Check if messaging was successfully initialized
+    console.error('[WebPushPro] Messaging not available (either not supported, or initialization failed for app ' + CLIENT_APP_NAME + '), cannot request permission or get token for ${domainName}.');
     return;
   }
 
@@ -85,7 +110,7 @@ function requestPermissionAndGetToken() {
   Notification.requestPermission().then((permission) => {
     console.log('[WebPushPro] Notification permission status for ${domainName}:', permission);
     if (permission === 'granted') {
-      console.log('[WebPushPro] Notification permission granted for ${domainName}. Attempting to get FCM token...');
+      console.log('[WebPushPro] Notification permission granted for ${domainName}. Attempting to get FCM token using VAPID key (first 10 chars):', VAPID_KEY ? VAPID_KEY.substring(0, 10) + '...' : 'NOT PROVIDED');
       messaging.getToken({ vapidKey: VAPID_KEY })
         .then((currentToken) => {
           if (currentToken) {
@@ -95,7 +120,7 @@ function requestPermissionAndGetToken() {
               domainName: '${domainName}',
               userAgent: navigator.userAgent
             };
-            console.log('[WebPushPro] Preparing to send subscriber data to API:', subscriberData);
+            console.log('[WebPushPro] Preparing to send subscriber data to API (' + API_BASE_URL + '/api/subscribe):', subscriberData);
             
             fetch(API_BASE_URL + '/api/subscribe', {
               method: 'POST',
@@ -108,7 +133,7 @@ function requestPermissionAndGetToken() {
             })
             .then(({ ok, status, data }) => {
               if (ok && data.id) {
-                console.log('[WebPushPro] Subscription successful via API for ${domainName}:', data);
+                console.log('[WebPushPro] Subscription successful via API for ${domainName}. Subscriber ID:', data.id, 'Full Response:', data);
               } else {
                 console.error('[WebPushPro] Subscription API response error for ${domainName}. Status:', status, 'Response Data:', data);
               }
@@ -117,11 +142,11 @@ function requestPermissionAndGetToken() {
               console.error('[WebPushPro] Subscription API fetch error for ${domainName}:', err);
             });
           } else {
-            console.warn('[WebPushPro] No registration token available for ${domainName}. Request permission to generate one, or check VAPID key and SW registration.');
+            console.warn('[WebPushPro] No registration token available for ${domainName}. This can happen if: VAPID key is missing/incorrect, SW not registered/active, permission not granted, or another issue with FCM setup.');
           }
         }).catch((err) => {
           console.error('[WebPushPro] An error occurred while retrieving FCM token for ${domainName}:', err);
-          console.error('[WebPushPro] Common token errors: Check VAPID key, ensure firebase-messaging-sw.js is in root & correctly configured, or manifest.json if used.');
+          console.error('[WebPushPro] Common token errors: Check VAPID key (must be a string), ensure firebase-messaging-sw.js is in root & correctly configured (check its console logs), or manifest.json if used, or service worker not active yet.');
         });
     } else {
       console.warn('[WebPushPro] Unable to get permission to notify for ${domainName}. Permission state: ' + permission);
@@ -132,33 +157,38 @@ function requestPermissionAndGetToken() {
 }
 
 // --- Service Worker and Initialization Check ---
-if (typeof firebase !== 'undefined' && firebase.messaging && firebase.messaging.isSupported && firebase.messaging.isSupported()) {
-  console.log('[WebPushPro] Firebase Messaging is supported by this browser.');
+// This check now primarily ensures the browser supports SW and messaging,
+// and the actual permission/token logic is deferred until SW is ready.
+if (firebaseApp && messaging) { // Check if both app and messaging service are initialized
   if ('serviceWorker' in navigator) {
     console.log('[WebPushPro] Service Worker API is supported in this browser.');
-    navigator.serviceWorker.register('/firebase-messaging-sw.js')
+    navigator.serviceWorker.register('/firebase-messaging-sw.js') // Ensure this path is correct for your site's root.
       .then(function(registration) {
         console.log('[WebPushPro] Service Worker registered successfully for ${domainName}. Scope:', registration.scope);
-        console.log('[WebPushPro] Ensuring Firebase Messaging uses this service worker registration.');
-        firebase.messaging().useServiceWorker(registration); // Explicitly use the registered SW
+        
+        // Ensure Firebase Messaging uses this service worker registration.
+        // THIS IS A CRITICAL FIX: Use the 'messaging' instance.
+        messaging.useServiceWorker(registration);
+        console.log('[WebPushPro] Firebase Messaging is using the registered service worker for app ' + CLIENT_APP_NAME);
         
         // Wait for SW to be ready/active before requesting token
         navigator.serviceWorker.ready.then(function(swReady) {
             console.log('[WebPushPro] Service Worker is ready (controller active). Registration:', swReady);
-            requestPermissionAndGetToken();
+            console.log('[WebPushPro] Proceeding to request permission and get token...');
+            requestPermissionAndGetToken(); // Request permission and token now that SW is active
         }).catch(function(swReadyError){
             console.error('[WebPushPro] Service Worker .ready() promise rejected:', swReadyError);
         });
 
       }).catch(function(error) {
         console.error('[WebPushPro] Service Worker registration failed for ${domainName}:', error);
-        console.error('[WebPushPro] Ensure firebase-messaging-sw.js is in the root directory of your site and accessible.');
+        console.error('[WebPushPro] Ensure firebase-messaging-sw.js is in the root directory of your site and accessible. Check its content and Firebase config.');
       });
   } else {
     console.warn('[WebPushPro] Service workers are not supported in this browser for ${domainName}. Push notifications will not work.');
   }
 } else {
-  console.warn('[WebPushPro] Firebase Messaging is not supported in this browser or an error occurred during Firebase initialization for ${domainName}. Push notifications may not work.');
+  console.warn('[WebPushPro] Firebase app or messaging service not initialized for ${domainName}, Service Worker setup and token retrieval skipped.');
 }
 
 /*
@@ -179,41 +209,62 @@ if (typeof firebase !== 'undefined' && firebase.messaging && firebase.messaging.
   console.log('[SW] firebase-messaging-sw.js executing...');
 
   const firebaseConfigSW = ${JSON.stringify(config, null, 2)};
-  console.log('[SW] Firebase Config:', firebaseConfigSW);
+  console.log('[SW] Firebase Config for Service Worker:', firebaseConfigSW);
   
   const swAppName = '${swAppName}';
   let firebaseAppSW;
-  try {
-    firebaseAppSW = firebase.app(swAppName);
-    console.log('[SW] Re-using existing Firebase app instance:', swAppName);
-  } catch (e) {
-    try {
-      firebaseAppSW = firebase.initializeApp(firebaseConfigSW, swAppName);
-      console.log('[SW] Firebase app instance initialized:', swAppName);
-    } catch (initError) {
-      console.error('[SW] Error initializing Firebase app (' + swAppName + '):', initError);
+  let messagingSW;
+
+  if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
+    const existingSwApp = firebase.apps.find(app => app.name === swAppName);
+    if (existingSwApp) {
+        firebaseAppSW = existingSwApp;
+        console.log('[SW] Using existing Firebase app instance:', swAppName);
+    } else {
+        try {
+          firebaseAppSW = firebase.initializeApp(firebaseConfigSW, swAppName);
+          console.log('[SW] Firebase app instance initialized:', swAppName);
+        } catch (initError) {
+          console.error('[SW] Error initializing Firebase app (' + swAppName + '):', initError);
+          firebaseAppSW = null;
+        }
     }
+  } else {
+     console.error('[SW] Firebase library not fully loaded (initializeApp is missing) in Service Worker.');
+     firebaseAppSW = null;
   }
   
-  if (firebaseAppSW && firebase.messaging) {
-    const messagingSW = firebase.messaging(firebaseAppSW);
-    console.log('[SW] Firebase Messaging initialized in Service Worker.');
+  if (firebaseAppSW) {
+    if (typeof firebase.messaging === 'function') {
+      try {
+        messagingSW = firebase.messaging(firebaseAppSW);
+        console.log('[SW] Firebase Messaging service initialized in Service Worker for app:', swAppName);
 
-    messagingSW.onBackgroundMessage((payload) => {
-      console.log('[SW] Received background message for ${domainName}:', payload);
-      // Customize notification here
-      const notificationTitle = payload.notification?.title || 'New Message from ${domainName}';
-      const notificationOptions = {
-        body: payload.notification?.body || 'You have a new message.',
-        icon: payload.notification?.icon || '/firebase-logo.png', // Default icon, ensure it exists or change path
-        // data: payload.data // Pass along data for click actions
-      };
-      self.registration.showNotification(notificationTitle, notificationOptions);
-    });
+        messagingSW.onBackgroundMessage((payload) => {
+          console.log('[SW] Received background message for ${domainName}:', payload);
+          // Customize notification here
+          const notificationTitle = payload.notification?.title || 'New Message from ${domainName}';
+          const notificationOptions = {
+            body: payload.notification?.body || 'You have a new message.',
+            icon: payload.notification?.icon || '/firebase-logo.png', // Default icon, ensure it exists or change path
+            data: payload.data // Pass along data for click actions
+          };
+          self.registration.showNotification(notificationTitle, notificationOptions);
+        });
+        console.log('[SW] Background message handler set up.');
+      } catch (swMessagingError) {
+        console.error('[SW] Error initializing Firebase Messaging in Service Worker:', swMessagingError);
+        messagingSW = null;
+      }
+    } else {
+      console.error('[SW] Firebase Messaging library (firebase.messaging) not loaded in Service Worker.');
+      messagingSW = null;
+    }
   } else {
-    console.error('[SW] Firebase Messaging could not be initialized in Service Worker.');
+    console.error('[SW] Firebase app (SW) not available, Firebase Messaging could not be initialized in Service Worker.');
+    messagingSW = null;
   }
-  console.log('[SW] firebase-messaging-sw.js setup complete.');
+  console.log('[SW] firebase-messaging-sw.js setup attempt complete.');
 */
 `;
 }
@@ -327,14 +378,9 @@ export default function DomainsPage() {
     setVerifyingDomainId(domainId);
     const newVerificationTime = Timestamp.fromDate(new Date());
     try {
-      // For actual verification, you would call a backend endpoint here
-      // that checks the DNS TXT record.
-      // For this example, we'll simulate a successful verification.
       console.log(`Simulating verification for domain ${domainToVerify.name} (ID: ${domainId}) with token ${token}`);
-      // Simulate network delay
       await new Promise(resolve => setTimeout(resolve, 1500)); 
 
-      // In a real app, this would be the result of the DNS check.
       const isActuallyVerified = true; 
 
       const domainRef = doc(db, "domains", domainId);
@@ -352,7 +398,7 @@ export default function DomainsPage() {
         toast({ title: "Verification Successful", description: `Domain ${domainToVerify.name} is now verified.` });
       } else {
         await updateDoc(domainRef, {
-          status: 'error', // or keep as 'pending' if you want to differentiate no-record from other errors
+          status: 'error', 
           lastVerificationAttempt: newVerificationTime,
         });
         setDomains(prevDomains => 
@@ -364,12 +410,11 @@ export default function DomainsPage() {
       }
     } catch (error) {
       console.error("Error verifying domain: ", error);
-      // Attempt to update status to error even if verification logic itself failed
       const domainRef = doc(db, "domains", domainId);
       try { 
         await updateDoc(domainRef, {
           lastVerificationAttempt: newVerificationTime,
-          status: 'error', // Set to error on any exception during verification
+          status: 'error', 
         });
         setDomains(prevDomains => 
           prevDomains.map(d => 
@@ -588,5 +633,3 @@ export default function DomainsPage() {
     </div>
   );
 }
-
-    
