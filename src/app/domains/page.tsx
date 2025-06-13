@@ -30,17 +30,86 @@ const initialFirebaseConfig: FirebaseConfig = {
 interface GeneratedScripts {
   clientScript: string;
   serviceWorkerScript: string;
-  serverApiScriptPHP: string;
+  serverApiScriptPHPComposer: string;
+  serverApiScriptPHPNoComposer: string;
 }
 
-const SCRIPT_VERSION = "2.0.0"; // Major version change due to new PHP API option
+const SCRIPT_VERSION = "2.1.0"; // Major version change due to new PHP API option & No Composer option
+
+// Pre-construct log prefixes to ensure SCRIPT_VERSION is evaluated during generation
+const clientLogTag = `[WebPushPro Client v${SCRIPT_VERSION}]`;
+const swLogTag = `[WebPushPro SW v${SCRIPT_VERSION}]`;
+const phpApiLogTag = `[WebPushPro PHP API v${SCRIPT_VERSION}]`;
 
 function generateFirebaseScripts(config: FirebaseConfig, domainName: string): GeneratedScripts {
   const clientAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app';
   const swAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app-sw';
+  
+  // Client script log messages
+  const clientLogInitializing = `${clientLogTag} Initializing for ${domainName}.`;
+  const clientLogFirebaseConfig = `${clientLogTag} Firebase Config for ${domainName}:`;
+  const clientLogVapidKey = `${clientLogTag} VAPID Key for ${domainName} (first 10 chars):`;
+  const clientLogExistingApp = `${clientLogTag} Using existing Firebase app instance: ${clientAppName}`;
+  const clientLogAppInitialized = `${clientLogTag} Firebase app instance initialized: ${clientAppName}`;
+  const clientLogAppInitError = `${clientLogTag} Error initializing Firebase app (${clientAppName}):`;
+  const clientLogFirebaseLibNotFound = `${clientLogTag} Firebase library not fully loaded (firebase or initializeApp is missing).`;
+  const clientLogAppAvailableMsgCheck = `${clientLogTag} Firebase app (${clientAppName}) is available. Proceeding with Messaging checks.`;
+  const clientLogMessagingSupported = `${clientLogTag} Firebase Messaging is supported by this browser.`;
+  const clientLogMessagingInstanceCreated = `${clientLogTag} Firebase Messaging service initialized for app: ${clientAppName}`;
+  const clientLogMessagingInitError = `${clientLogTag} Error initializing Firebase Messaging service:`;
+  const clientLogMessagingNotSupported = `${clientLogTag} Firebase Messaging is not supported in this browser for ${domainName}.`;
+  const clientLogMessagingLibNotFound = `${clientLogTag} Firebase Messaging library (firebase.messaging or firebase.messaging.isSupported) not loaded.`;
+  const clientLogAppNotAvailableSkipMsg = `${clientLogTag} Firebase app (${clientAppName}) not available, skipping Messaging initialization.`;
+  const clientLogMessagingNotAvailable = `${clientLogTag} Messaging not available for app ${clientAppName}, cannot request permission or get token for ${domainName}.`;
+  const clientLogVapidMissing = `${clientLogTag} VAPID_KEY is missing for ${domainName}. Cannot get FCM token.`;
+  const clientLogRequestingPermission = `${clientLogTag} Requesting notification permission for ${domainName}...`;
+  const clientLogPermissionStatus = `${clientLogTag} Notification permission status for ${domainName}:`;
+  const clientLogPermGranted = `${clientLogTag} Notification permission granted for ${domainName}. Attempting to get FCM token using VAPID key (first 10 chars):`;
+  const clientLogTokenObtained = `${clientLogTag} FCM Token obtained for ${domainName} (first 20 chars):`;
+  const clientLogSendingSubscriber = `${clientLogTag} Preparing to send subscriber data to /subscribe.php on your server (${domainName}):`;
+  const clientLogApiResponseStatus = `${clientLogTag} Subscription API (your server /subscribe.php) response status:`;
+  const clientLogApiSubSuccess = `${clientLogTag} Subscription API (your server /subscribe.php) success. Subscriber ID:`;
+  const clientLogApiSubError = `${clientLogTag} Subscription API (your server /subscribe.php) error. Status:`;
+  const clientLogApiFetchError = `${clientLogTag} Subscription API (your server /subscribe.php) fetch error:`;
+  const clientLogNoToken = `${clientLogTag} No registration token available for ${domainName}.`;
+  const clientLogTokenError = `${clientLogTag} An error occurred while retrieving FCM token for ${domainName}:`;
+  const clientLogTokenErrorCommon = `${clientLogTag} Common token errors: Check VAPID key, ensure firebase-messaging-sw.js is in root & correctly configured (check its console logs), or service worker not active yet.`;
+  const clientLogPermNotGranted = `${clientLogTag} Unable to get permission to notify for ${domainName}. Permission state:`;
+  const clientLogPermRequestError = `${clientLogTag} Error requesting notification permission for ${domainName}:`;
+  const clientLogSwApiSupported = `${clientLogTag} Service Worker API is supported. Attempting to register /firebase-messaging-sw.js`;
+  const clientLogSwRegistered = `${clientLogTag} Service Worker registered successfully for ${domainName}. Scope:`;
+  const clientLogDiagAboutToCallUseSw = `${clientLogTag} DIAGNOSTIC: About to call useServiceWorker.`;
+  const clientLogDiagMessagingObject = `${clientLogTag} DIAGNOSTIC: Current messaging object:`;
+  const clientLogDiagTypeOfUseSw = `${clientLogTag} DIAGNOSTIC: typeof messaging.useServiceWorker:`;
+  const clientLogDiagGlobalFirebase = `${clientLogTag} DIAGNOSTIC: Global firebase object state:`;
+  const clientLogDiagGlobalMessaging = `${clientLogTag} DIAGNOSTIC: Global firebase.messaging state:`;
+  const clientLogDiagGlobalMessagingUseSw = `${clientLogTag} DIAGNOSTIC: Global firebase.messaging() instance typeof useServiceWorker:`;
+  const clientLogDiagCouldNotGetGlobalMessaging = `${clientLogTag} DIAGNOSTIC: Could not get global firebase.messaging() instance to check its useServiceWorker type. This is usually fine if a named app is used.`;
+  const clientLogDiagGlobalMessagingNotFunction = `${clientLogTag} DIAGNOSTIC: Global firebase.messaging is not a function or firebase object is not fully available.`;
+  const clientLogMessagingUsingSw = `${clientLogTag} Firebase Messaging is using the registered service worker for app ${clientAppName}`;
+  const clientLogDiagUseSwIsFunction = `${clientLogTag} DIAGNOSTIC: messaging.useServiceWorker IS a function.`;
+  const clientLogDiagUseSwNotFunctionCritical = `${clientLogTag} CRITICAL ERROR: messaging.useServiceWorker is NOT a function.`;
+  const clientLogDiagUseSwTroubleshooting = `This almost always means the Firebase Messaging Compat library (firebase-messaging-compat.js) was not loaded or did not execute correctly on your page *BEFORE* this script.
+TROUBLESHOOTING STEPS (RE-CHECK CAREFULLY ON YOUR WEBSITE ${domainName}):
+1. CHECK CONSOLE FOR OTHER ERRORS: Look for any errors that occurred *before* this one, especially errors originating from firebase-app-compat.js or firebase-messaging-compat.js.
+2. VERIFY SCRIPT ORDER AND LOADING IN YOUR WEBSITE'S HTML:
+   - Ensure <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"><\/script> AND <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"><\/script> tags are in your HTML.
+   - They ABSOLUTELY MUST appear *before* this WebPush Pro script tag.
+   - NO ASYNC/DEFER: Remove 'async' or 'defer' attributes from Firebase SDK script tags. Plain script tags ensure sequential loading.
+3. CHECK NETWORK TAB (Developer Tools F12):
+   - Confirm firebase-app-compat.js and firebase-messaging-compat.js downloaded with HTTP 200 OK.
+   - Verify their content is actual Firebase SDK code (not an error page or empty).
+4. INSPECT LOGS ABOVE: The "DIAGNOSTIC" logs show the state of your 'messaging' object. If 'useServiceWorker' is undefined, it means the compat script hasn't augmented it.
+Current messaging object (logged just before this error):`;
+  const clientLogSwWaiting = `${clientLogTag} Waiting for Service Worker to be ready (controller active)...`;
+  const clientLogSwReady = `${clientLogTag} Service Worker is ready. Registration:`;
+  const clientLogSwProceeding = `${clientLogTag} Proceeding to request permission and get token...`;
+  const clientLogSwReadyError = `${clientLogTag} Service Worker .ready() promise rejected:`;
+  const clientLogSwRegFailed = `${clientLogTag} SW registration failed for ${domainName}:`;
+  const clientLogSwRegFailedCommon = `${clientLogTag} Ensure firebase-messaging-sw.js is in the root directory of your site and accessible. Check its content and Firebase config.`;
+  const clientLogSwNotSupported = `${clientLogTag} Service workers are not supported in this browser for ${domainName}. Push notifications will not work.`;
+  const clientLogFirebaseOrMsgNotInit = `${clientLogTag} Firebase app or messaging service not successfully initialized for ${domainName}. Service Worker setup and token retrieval skipped.`;
 
-  const clientLogTag = `[WebPushPro Client v${SCRIPT_VERSION}]`;
-  const swLogTag = `[WebPushPro SW v${SCRIPT_VERSION}]`;
 
   // Client-side script: Will now call a local /subscribe.php
   const clientScript = `
@@ -52,10 +121,10 @@ function generateFirebaseScripts(config: FirebaseConfig, domainName: string): Ge
   1. Firebase SDKs MUST be loaded BEFORE this script. Add these to your <head> or before this script tag:
      <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"><\/script>
      <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"><\/script>
-  2. This script now sends subscription data to '/subscribe.php' on YOUR domain. 
-     Ensure the "Server-Side API (PHP)" script is correctly set up at that location on your server.
+  2. This script sends subscription data to '/subscribe.php' on YOUR domain (${domainName}).
+     Ensure the "Server-Side API (PHP)" script (either Composer or No-Composer version) is correctly set up at that location.
 */
-console.log('${clientLogTag} Initializing for ${domainName}.');
+console.log('${clientLogInitializing}');
 
 // --- Configuration ---
 const firebaseConfig = ${JSON.stringify(config, null, 2)};
@@ -63,6 +132,9 @@ const VAPID_KEY = '${config.vapidKey || ""}';
 const CLIENT_APP_NAME = '${clientAppName}';
 const DOMAIN_NAME = '${domainName}';
 const SUBSCRIBE_API_PATH = '/subscribe.php'; // Path to your server-side PHP script
+
+console.log('${clientLogFirebaseConfig}', firebaseConfig);
+console.log('${clientLogVapidKey}', VAPID_KEY ? VAPID_KEY.substring(0, 10) + '...' : 'NOT PROVIDED - ESSENTIAL!');
 
 let firebaseApp = null;
 let messaging = null;
@@ -72,112 +144,145 @@ if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'functi
     const existingApp = firebase.apps.find(app => app.name === CLIENT_APP_NAME);
     if (existingApp) {
       firebaseApp = existingApp;
+      console.log('${clientLogExistingApp}');
     } else {
       firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
+      console.log('${clientLogAppInitialized}');
     }
-    console.log('${clientLogTag} Firebase app (' + CLIENT_APP_NAME + ') initialized/retrieved.');
   } catch (initError) {
-    console.error('${clientLogTag} Error initializing Firebase app (' + CLIENT_APP_NAME + '):', initError);
+    console.error('${clientLogAppInitError}', initError);
   }
 } else {
-  console.error('${clientLogTag} Firebase library (firebase.initializeApp) not found. Ensure firebase-app-compat.js is loaded BEFORE this script.');
+  console.error('${clientLogFirebaseLibNotFound}');
 }
 
 if (firebaseApp) {
+  console.log('${clientLogAppAvailableMsgCheck}');
   if (typeof firebase.messaging === 'function' && typeof firebase.messaging.isSupported === 'function') {
     if (firebase.messaging.isSupported()) {
+      console.log('${clientLogMessagingSupported}');
       try {
         messaging = firebase.messaging(firebaseApp);
-        console.log('${clientLogTag} Firebase Messaging service instance created for app: ' + CLIENT_APP_NAME);
+        console.log('${clientLogMessagingInstanceCreated}', messaging);
       } catch (messagingError) {
-        console.error('${clientLogTag} Error creating Firebase Messaging service instance:', messagingError);
+        console.error('${clientLogMessagingInitError}', messagingError);
       }
     } else {
-      console.warn('${clientLogTag} Firebase Messaging is not supported by this browser.');
+      console.warn('${clientLogMessagingNotSupported}');
     }
   } else {
-    console.error('${clientLogTag} Firebase Messaging (firebase.messaging or firebase.messaging.isSupported) not found. Ensure firebase-messaging-compat.js loaded BEFORE this script.');
+    console.error('${clientLogMessagingLibNotFound}');
   }
+} else {
+  console.log('${clientLogAppNotAvailableSkipMsg}');
 }
 
 function requestAndSendToken() {
   if (!messaging) {
-    console.error('${clientLogTag} Messaging service not available. Cannot get token.');
+    console.error('${clientLogMessagingNotAvailable}');
     return;
   }
   if (!VAPID_KEY) {
-    console.error('${clientLogTag} VAPID_KEY is missing. Cannot get FCM token.');
+    console.error('${clientLogVapidMissing}');
     return;
   }
 
+  console.log('${clientLogRequestingPermission}');
   Notification.requestPermission().then((permission) => {
+    console.log('${clientLogPermissionStatus}', permission);
     if (permission === 'granted') {
-      console.log('${clientLogTag} Notification permission granted.');
+      console.log('${clientLogPermGranted}', VAPID_KEY.substring(0, 10) + '...');
       messaging.getToken({ vapidKey: VAPID_KEY })
         .then((currentToken) => {
           if (currentToken) {
-            console.log('${clientLogTag} FCM Token obtained (first 20 chars):', currentToken.substring(0,20) + '...');
+            console.log('${clientLogTokenObtained}', currentToken.substring(0,20) + '...');
             const subscriberData = { token: currentToken, domainName: DOMAIN_NAME, userAgent: navigator.userAgent };
             
-            console.log('${clientLogTag} Preparing to send subscriber data to ' + SUBSCRIBE_API_PATH + ' on your server:', subscriberData);
-            fetch(SUBSCRIBE_API_PATH, { // Calls your local PHP script
+            console.log('${clientLogSendingSubscriber}', subscriberData);
+            fetch(SUBSCRIBE_API_PATH, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(subscriberData)
             })
-            .then(response => response.json().then(data => ({ok: response.ok, status: response.status, data })))
-            .then(({ok, status, data}) => {
-              if (ok) console.log('${clientLogTag} Subscription API (your server) success:', data);
-              else console.error('${clientLogTag} Subscription API (your server) error. Status:', status, 'Response:', data);
+            .then(response => {
+              console.log('${clientLogApiResponseStatus}', response.status);
+              return response.json().then(data => ({ok: response.ok, status: response.status, data }));
             })
-            .catch(err => console.error('${clientLogTag} Subscription API (your server) fetch error:', err));
+            .then(({ok, status, data}) => {
+              if (ok && data.id) {
+                 console.log('${clientLogApiSubSuccess}', data.id, 'Full Response:', data);
+              } else {
+                console.error('${clientLogApiSubError}', status, 'Response Data:', data);
+              }
+            })
+            .catch(err => console.error('${clientLogApiFetchError}', err));
           } else {
-            console.warn('${clientLogTag} No FCM registration token available. Ensure SW is active, VAPID key is correct, and site is HTTPS.');
+            console.warn('${clientLogNoToken}');
           }
         }).catch((err) => {
-          console.error('${clientLogTag} Error retrieving FCM token:', err);
+          console.error('${clientLogTokenError}', err);
+          console.error('${clientLogTokenErrorCommon}');
         });
     } else {
-      console.warn('${clientLogTag} Notification permission not granted:', permission);
+      console.warn('${clientLogPermNotGranted}', permission);
     }
   }).catch(err => {
-    console.error('${clientLogTag} Error requesting notification permission:', err);
+    console.error('${clientLogPermRequestError}', err);
   });
 }
 
 if (firebaseApp && messaging) {
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/firebase-messaging-sw.js') // Standard path for FCM
+    console.log('${clientLogSwApiSupported}');
+    navigator.serviceWorker.register('/firebase-messaging-sw.js')
       .then(function(registration) {
-        console.log('${clientLogTag} Service Worker registered. Scope:', registration.scope);
+        console.log('${clientLogSwRegistered}', registration.scope);
         
+        console.log('${clientLogDiagAboutToCallUseSw}');
+        console.log('${clientLogDiagMessagingObject}', messaging);
+        console.log('${clientLogDiagTypeOfUseSw}', typeof messaging.useServiceWorker);
+
         if (typeof messaging.useServiceWorker === 'function') {
-          messaging.useServiceWorker(registration);
-          console.log('${clientLogTag} Firebase Messaging is now using the Service Worker.');
-          navigator.serviceWorker.ready.then(function(swReady) {
-            console.log('${clientLogTag} Service Worker is ready. Attempting to get token.');
-            requestAndSendToken();
-          }).catch(swReadyErr => console.error('${clientLogTag} SW .ready() error:', swReadyErr));
+            console.log('${clientLogDiagUseSwIsFunction}');
+            messaging.useServiceWorker(registration);
+            console.log('${clientLogMessagingUsingSw}');
         } else {
-          console.error(
-            '${clientLogTag} CRITICAL ERROR: messaging.useServiceWorker is NOT a function.\\n' +
-            'This means firebase-messaging-compat.js did not load or execute correctly *BEFORE* this script, OR it failed to augment the Firebase messaging service.\\n' +
-            'TROUBLESHOOTING ON YOUR WEBSITE (' + DOMAIN_NAME + '):\\n' +
-            '1. VERIFY SCRIPT TAGS IN HTML: <script src="...firebase-app-compat.js"><\\/script> THEN <script src="...firebase-messaging-compat.js"><\\/script> MUST appear BEFORE this WebPushPro script.\\n' +
-            '2. NO ASYNC/DEFER: Remove async/defer from Firebase SDK script tags for simplest loading order.\\n' +
-            '3. CHECK CONSOLE: Look for errors from firebase-app-compat.js or firebase-messaging-compat.js themselves.\\n'
-          );
+            console.error('${clientLogDiagUseSwNotFunctionCritical}');
+            console.error('${clientLogDiagUseSwTroubleshooting}', messaging);
+            return; 
         }
+
+        console.log('${clientLogSwWaiting}');
+        navigator.serviceWorker.ready.then(function(swReady) {
+            console.log('${clientLogSwReady}', swReady);
+            console.log('${clientLogSwProceeding}');
+            requestAndSendToken();
+        }).catch(swReadyErr => console.error('${clientLogSwReadyError}', swReadyErr));
+
       }).catch(function(error) {
-        console.error('${clientLogTag} Service Worker registration failed:', error);
+        console.error('${clientLogSwRegFailed}', error);
+        console.error('${clientLogSwRegFailedCommon}');
       });
   } else {
-    console.warn('${clientLogTag} Service workers are not supported in this browser.');
+    console.warn('${clientLogSwNotSupported}');
   }
 } else {
-  console.warn('${clientLogTag} Firebase app or messaging service not initialized. Skipping SW setup and token retrieval.');
+  console.warn('${clientLogFirebaseOrMsgNotInit}');
 }
 `;
+
+  // Service Worker script log messages
+  const swLogExecuting = `${swLogTag} firebase-messaging-sw.js executing for ${domainName}.`;
+  const swLogConfig = `${swLogTag} Firebase Config for SW on ${domainName}:`;
+  const swLogAppInit = `${swLogTag} Firebase app (${swAppName}) initialized/retrieved in SW.`;
+  const swLogAppInitError = `${swLogTag} Error initializing Firebase app in SW:`;
+  const swLogFirebaseCoreNotAvailable = `${swLogTag} Firebase Core SDK (firebase.initializeApp) not available in SW. importScripts failed?`;
+  const swLogMessagingInstanceCreated = `${swLogTag} Firebase Messaging service instance created in SW for app: ${swAppName}`;
+  const swLogMessagingOptionalHandler = `${swLogTag} Received background message for ${domainName}:`;
+  const swLogMessagingError = `${swLogTag} Error creating Firebase Messaging service instance in SW:`;
+  const swLogAppOrMessagingNotAvailable = `${swLogTag} Firebase app in SW not initialized or firebase.messaging not available. Cannot setup SW messaging.`;
+  const swLogSetupComplete = `${swLogTag} SW setup attempt complete for ${domainName}.`;
+
 
   const serviceWorkerScript = `
 /*
@@ -190,10 +295,11 @@ if (firebaseApp && messaging) {
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-console.log('${swLogTag} firebase-messaging-sw.js executing for ${domainName}.');
+console.log('${swLogExecuting}');
 
 const firebaseConfigSW = ${JSON.stringify(config, null, 2)};
 const SW_APP_NAME_INTERNAL = '${swAppName}'; 
+console.log('${swLogConfig}', firebaseConfigSW);
 
 let firebaseAppSW = null;
 
@@ -205,22 +311,22 @@ if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'functi
     } else {
       firebaseAppSW = firebase.initializeApp(firebaseConfigSW, SW_APP_NAME_INTERNAL);
     }
-    console.log('${swLogTag} Firebase app (' + SW_APP_NAME_INTERNAL + ') initialized/retrieved in SW.');
+    console.log('${swLogAppInit}');
   } catch (e) {
-    console.error('${swLogTag} Error initializing Firebase app in SW:', e);
+    console.error('${swLogAppInitError}', e);
   }
 } else {
-  console.error('${swLogTag} Firebase Core SDK (firebase.initializeApp) not available in SW. importScripts failed?');
+  console.error('${swLogFirebaseCoreNotAvailable}');
 }
 
 if (firebaseAppSW && typeof firebase.messaging === 'function') {
   try {
     const messagingSW = firebase.messaging(firebaseAppSW);
-    console.log('${swLogTag} Firebase Messaging service instance created in SW for app: ' + SW_APP_NAME_INTERNAL);
+    console.log('${swLogMessagingInstanceCreated}');
 
     // Optional: Handle background messages here
     // messagingSW.onBackgroundMessage(function(payload) {
-    //   console.log('${swLogTag} Received background message for ${domainName}:', payload);
+    //   console.log('${swLogMessagingOptionalHandler}', payload);
     //   const notificationTitle = payload.notification?.title || 'Background Message';
     //   const notificationOptions = {
     //     body: payload.notification?.body || 'Received a message.',
@@ -229,29 +335,37 @@ if (firebaseAppSW && typeof firebase.messaging === 'function') {
     //   return self.registration.showNotification(notificationTitle, notificationOptions);
     // });
   } catch (e) {
-    console.error('${swLogTag} Error creating Firebase Messaging service instance in SW:', e);
+    console.error('${swLogMessagingError}', e);
   }
 } else {
-  console.error('${swLogTag} Firebase app in SW not initialized or firebase.messaging not available. Cannot setup SW messaging.');
+  console.error('${swLogAppOrMessagingNotAvailable}');
 }
-console.log('${swLogTag} SW setup attempt complete for ${domainName}.');
+console.log('${swLogSetupComplete}');
 `;
 
-  const serverApiScriptPHP = `<?php
+  const serverApiScriptPHPComposer = `<?php
 // File: subscribe.php
-// WebPush Pro - Server-Side Subscription Handler for ${domainName}
+// WebPush Pro - Server-Side Subscription Handler (Composer Version) for ${domainName}
 // Version: ${SCRIPT_VERSION}
 
 header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *'); // Allow all origins for simplicity, tighten in production
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+
+if (strtoupper($_SERVER['REQUEST_METHOD']) == 'OPTIONS') {
+    http_response_code(204); // No Content for preflight
+    exit;
+}
 error_reporting(0); // Suppress errors from being sent in HTTP response in prod; log them instead.
 
-// --- IMPORTANT: Firebase Admin SDK Setup ---
+// --- IMPORTANT: Firebase Admin SDK Setup (Composer) ---
 // 1. Install kreait/firebase-php on your server:
 //    composer require kreait/firebase-php
 //
 // 2. Ensure Composer's autoloader is included. Adjust the path if this script
 //    is not in the same directory as your 'vendor' folder.
-//    require __DIR__ . '/vendor/autoload.php';
+//    require __DIR__ . '/vendor/autoload.php'; // UNCOMMENT AND ADJUST PATH
 //
 // 3. Securely store your Firebase Admin SDK service account JSON key file on your server.
 //    DO NOT commit this file to public repositories or expose it via web.
@@ -261,7 +375,8 @@ error_reporting(0); // Suppress errors from being sent in HTTP response in prod;
 //    Using an environment variable is recommended for production.
 //
 // --- CONFIGURATION ---
-$serviceAccountPath = getenv('FIREBASE_ADMIN_SERVICE_ACCOUNT_PATH') ?: '/path/to/your/webpush-pro-service-account.json'; // !!! REPLACE THIS PATH !!!
+// !!! REPLACE THIS PATH with the actual path to your service account JSON key file !!!
+$serviceAccountPath = getenv('FIREBASE_ADMIN_SERVICE_ACCOUNT_PATH') ?: '/path/to/your/webpush-pro-service-account.json'; 
 $firebaseProjectId = '${config.projectId}'; // Inferred from your Firebase config
 
 // --- Input Validation & Processing ---
@@ -290,32 +405,33 @@ if (empty($token) || empty($receivedDomainName)) {
     exit;
 }
 
-// Security: Verify the received domainName matches the domain this script is intended for.
 $expectedDomainName = '${domainName}';
 if ($receivedDomainName !== $expectedDomainName) {
-    error_log("[WebPushPro PHP API] Domain mismatch. Expected: {$expectedDomainName}, Received: {$receivedDomainName}");
+    error_log("${phpApiLogTag} Domain mismatch. Expected: {$expectedDomainName}, Received: {$receivedDomainName}");
     http_response_code(400);
     echo json_encode(['error' => 'Domain mismatch. Subscription rejected.']);
     exit;
 }
 
 // --- Firebase Admin SDK Initialization & Firestore Interaction ---
-// Ensure you have included the Composer autoloader as mentioned above.
-// For example: require_once __DIR__ . '/vendor/autoload.php';
+// Ensure you have:
+// 1. Uncommented: require __DIR__ . '/vendor/autoload.php'; (adjust path if needed)
+// 2. Corrected: $serviceAccountPath above.
 
+/* // UNCOMMENT THIS BLOCK AFTER CONFIGURING AUTOLOADER AND SERVICE ACCOUNT PATH
 use Kreait\\FirebaseFactory;
 use Kreait\\Firebase\\Exception\\FirebaseException;
-use Google\\Cloud\\Firestore\\Timestamp; // For Firestore Timestamp
+use Google\\Cloud\\Firestore\\Timestamp; 
 
 if (!class_exists(FirebaseFactory::class)) {
-    error_log("[WebPushPro PHP API] FirebaseFactory class not found. Is kreait/firebase-php installed and autoloaded?");
+    error_log("${phpApiLogTag} FirebaseFactory class not found. Is kreait/firebase-php installed and autoloaded? Have you uncommented the 'require vendor/autoload.php' line?");
     http_response_code(500);
     echo json_encode(['error' => 'Server configuration error: Firebase Admin SDK library not found.']);
     exit;
 }
 
 if (!file_exists($serviceAccountPath)) {
-    error_log("[WebPushPro PHP API] Service account file not found at: {$serviceAccountPath}. Please check the path.");
+    error_log("${phpApiLogTag} Service account file not found at: {$serviceAccountPath}. Please check the path set in this script.");
     http_response_code(500);
     echo json_encode(['error' => 'Server configuration error: Firebase service account file not found.']);
     exit;
@@ -324,19 +440,16 @@ if (!file_exists($serviceAccountPath)) {
 try {
     $firebaseFactory = (new FirebaseFactory())->withServiceAccount($serviceAccountPath);
     $firestore = $firebaseFactory->createFirestore();
-    $db = $firestore->database(); // Firestore client
+    $db = $firestore->database(); 
 
     $subscribersCollection = $db->collection('subscribers');
     
-    // Check if token already exists for this domain to prevent duplicates (optional but good practice)
     $query = $subscribersCollection->where('token', '==', $token)->where('domainName', '==', $receivedDomainName);
     $existingSubscribers = $query->documents();
 
     if (!$existingSubscribers->isEmpty()) {
-        // Token already exists, perhaps update subscribedAt or just return success
         $existingDocId = $existingSubscribers->rows()[0]->id();
-        // $subscribersCollection->document($existingDocId)->set(['subscribedAt' => new Timestamp(new \\DateTimeImmutable())], ['merge' => true]);
-        http_response_code(200); // OK
+        http_response_code(200); 
         echo json_encode([
             'message' => 'Subscriber token already exists for this domain.',
             'id' => $existingDocId
@@ -344,7 +457,6 @@ try {
         exit;
     }
     
-    // Add new subscriber
     $newSubscriberRef = $subscribersCollection->add([
         'token' => $token,
         'domainName' => $receivedDomainName,
@@ -352,27 +464,259 @@ try {
         'subscribedAt' => new Timestamp(new \\DateTimeImmutable()),
     ]);
 
-    http_response_code(201); // Created
+    http_response_code(201); 
     echo json_encode([
         'message' => 'Subscriber added successfully.',
         'id' => $newSubscriberRef->id(),
     ]);
 
 } catch (FirebaseException $e) {
-    error_log("[WebPushPro PHP API] Firestore Error (FirebaseException): " . $e->getMessage() . " | Trace: " . $e->getTraceAsString());
+    error_log("${phpApiLogTag} Firestore Error (FirebaseException): " . $e->getMessage() . " | Trace: " . $e->getTraceAsString());
     http_response_code(500);
     echo json_encode(['error' => 'Failed to add subscriber to database.', 'details' => $e->getMessage()]);
     exit;
 } catch (\\Exception $e) {
-    error_log("[WebPushPro PHP API] General Error: " . $e->getMessage() . " | Trace: " . $e->getTraceAsString());
+    error_log("${phpApiLogTag} General Error: " . $e->getMessage() . " | Trace: " . $e->getTraceAsString());
     http_response_code(500);
     echo json_encode(['error' => 'An unexpected error occurred.', 'details' => $e->getMessage()]);
     exit;
 }
+*/ // END OF COMPOSER-BASED BLOCK
 
+// Fallback message if the Composer block is not uncommented/configured
+echo json_encode([
+    'error' => 'PHP API script (Composer version) not fully configured. Please uncomment and setup the Firebase Admin SDK block in subscribe.php.',
+    'note' => 'This is a placeholder response because the Firebase Admin SDK integration part is commented out in the PHP script.'
+]);
 ?>`;
 
-  return { clientScript, serviceWorkerScript, serverApiScriptPHP };
+  const serverApiScriptPHPNoComposer = `<?php
+// File: subscribe.php
+// WebPush Pro - Server-Side Subscription Handler (No Composer / REST API Version) for ${domainName}
+// Version: ${SCRIPT_VERSION}
+
+header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *'); // Allow all origins for simplicity, tighten in production
+header('Access-Control-Allow-Methods: POST, OPTIONS');
+header('Access-Control-Allow-Headers: Content-Type');
+
+if (strtoupper($_SERVER['REQUEST_METHOD']) == 'OPTIONS') {
+    http_response_code(204); // No Content for preflight
+    exit;
+}
+error_reporting(E_ALL); // Report all errors for debugging, set to 0 in production
+ini_set('display_errors', '1'); // Display errors for debugging, set to '0' in production
+ini_set('log_errors', '1');
+// Ensure error_log path is writable by the web server in php.ini or via ini_set('error_log', '/path/to/your/php-errors.log');
+
+// --- IMPORTANT: Firebase Admin SDK Service Account Setup (No Composer) ---
+// 1. Securely store your Firebase Admin SDK service account JSON key file on your server.
+//    DO NOT commit this file to public repositories or expose it via web.
+//    Download it from Firebase Console: Project settings > Service accounts > Generate new private key.
+//
+// 2. Set the correct path to your service account key file below.
+//    Using an environment variable is recommended for production.
+//
+// 3. This script requires PHP's openssl extension for JWT signing and
+//    either curl extension or allow_url_fopen=On in php.ini for HTTP requests.
+//
+// --- CONFIGURATION ---
+// !!! REPLACE THIS PATH with the actual path to your service account JSON key file !!!
+$serviceAccountPath = getenv('FIREBASE_ADMIN_SERVICE_ACCOUNT_PATH') ?: '/path/to/your/webpush-pro-service-account.json';
+$firebaseProjectId = '${config.projectId}'; // Inferred from your Firebase config
+
+// --- Helper Functions ---
+function base64url_encode($data) {
+    return rtrim(strtr(base64_encode($data), '+/', '-_'), '=');
+}
+
+function get_google_oauth2_access_token($serviceAccountFile, $projectId) {
+    global ${phpApiLogTag};
+    if (!file_exists($serviceAccountFile)) {
+        error_log("${phpApiLogTag} Service account file not found: " . $serviceAccountFile);
+        return null;
+    }
+    $serviceAccount = json_decode(file_get_contents($serviceAccountFile), true);
+    if (!$serviceAccount) {
+        error_log("${phpApiLogTag} Could not parse service account file: " . $serviceAccountFile);
+        return null;
+    }
+
+    $jwtHeader = base64url_encode(json_encode(['alg' => 'RS256', 'typ' => 'JWT']));
+    $now = time();
+    $expiry = $now + 3600; // 1 hour
+
+    $jwtClaimSet = base64url_encode(json_encode([
+        'iss' => $serviceAccount['client_email'],
+        'scope' => 'https://www.googleapis.com/auth/datastore', // Firestore scope
+        'aud' => 'https://oauth2.googleapis.com/token',
+        'exp' => $expiry,
+        'iat' => $now
+    ]));
+
+    $signingString = $jwtHeader . '.' . $jwtClaimSet;
+    $signature = '';
+    if (!openssl_sign($signingString, $signature, $serviceAccount['private_key'], 'sha256')) {
+        error_log("${phpApiLogTag} Failed to sign JWT: " . openssl_error_string());
+        return null;
+    }
+    $signedJwt = $signingString . '.' . base64url_encode($signature);
+
+    $tokenUrl = 'https://oauth2.googleapis.com/token';
+    $postData = http_build_query([
+        'grant_type' => 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+        'assertion' => $signedJwt
+    ]);
+
+    $options = [
+        'http' => [
+            'header' => "Content-Type: application/x-www-form-urlencoded\\r\\n",
+            'method' => 'POST',
+            'content' => $postData,
+            'ignore_errors' => true // To capture error response bodies
+        ]
+    ];
+    $context = stream_context_create($options);
+    $response = file_get_contents($tokenUrl, false, $context);
+    $responseData = json_decode($response, true);
+
+    if (isset($responseData['access_token'])) {
+        return $responseData['access_token'];
+    } else {
+        error_log("${phpApiLogTag} Failed to get access token. Response: " . $response);
+        return null;
+    }
+}
+
+function add_subscriber_to_firestore($projectId, $accessToken, $subscriberData) {
+    global ${phpApiLogTag};
+    $firestoreUrl = "https://firestore.googleapis.com/v1/projects/{$projectId}/databases/(default)/documents/subscribers";
+    
+    // Check for existing subscriber (optional, to prevent duplicates)
+    // This requires constructing a structured query, which is more complex via REST.
+    // For simplicity, this example directly adds, which might create duplicates if token is re-submitted.
+    // A robust solution would query first or use the token as document ID if unique.
+
+    $isoTimestamp = gmdate("Y-m-d\\TH:i:s\\Z"); // Firestore timestamp format
+
+    $document = [
+        'fields' => [
+            'token' => ['stringValue' => $subscriberData['token']],
+            'domainName' => ['stringValue' => $subscriberData['domainName']],
+            'userAgent' => ['stringValue' => $subscriberData['userAgent']],
+            'subscribedAt' => ['timestampValue' => $isoTimestamp]
+        ]
+    ];
+    $jsonData = json_encode($document);
+
+    $options = [
+        'http' => [
+            'header' => "Authorization: Bearer {$accessToken}\\r\\n" .
+                        "Content-Type: application/json\\r\\n" .
+                        "Accept: application/json\\r\\n",
+            'method' => 'POST',
+            'content' => $jsonData,
+            'ignore_errors' => true
+        ]
+    ];
+    $context = stream_context_create($options);
+    $response = file_get_contents($firestoreUrl, false, $context);
+    $responseData = json_decode($response, true);
+
+    // Check HTTP status code from $http_response_header
+    // Example: $status_line = $http_response_header[0]; preg_match('{HTTP\/\S*\s(\d{3})}', $status_line, $match); $status = $match[1];
+    // For simplicity, we check if 'name' (document path) is in response for success
+    if (isset($responseData['name'])) { 
+        // Extract document ID from name: projects/{projectId}/databases/(default)/documents/subscribers/{documentId}
+        $parts = explode('/', $responseData['name']);
+        return ['id' => end($parts), 'data' => $responseData];
+    } else {
+        error_log("${phpApiLogTag} Firestore error. Request: {$jsonData} Response: " . $response);
+        return ['error' => 'Failed to add to Firestore.', 'details' => $responseData];
+    }
+}
+
+// --- Input Validation & Processing ---
+if (strtoupper($_SERVER['REQUEST_METHOD']) !== 'POST') {
+    http_response_code(405);
+    echo json_encode(['error' => 'Invalid request method. Only POST is allowed.']);
+    exit;
+}
+
+$inputJSON = file_get_contents('php://input');
+$input = json_decode($inputJSON, true);
+
+if (json_last_error() !== JSON_ERROR_NONE) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Invalid JSON payload.']);
+    exit;
+}
+
+$token = $input['token'] ?? null;
+$receivedDomainName = $input['domainName'] ?? null;
+$userAgent = $input['userAgent'] ?? $_SERVER['HTTP_USER_AGENT'] ?? 'Unknown';
+
+if (empty($token) || empty($receivedDomainName)) {
+    http_response_code(400);
+    echo json_encode(['error' => 'Missing token or domainName.']);
+    exit;
+}
+
+$expectedDomainName = '${domainName}';
+if ($receivedDomainName !== $expectedDomainName) {
+    error_log("${phpApiLogTag} Domain mismatch. Expected: {$expectedDomainName}, Received: {$receivedDomainName}");
+    http_response_code(400);
+    echo json_encode(['error' => 'Domain mismatch. Rejected.']);
+    exit;
+}
+
+// --- Main Logic ---
+if (!file_exists($serviceAccountPath)) {
+    error_log("${phpApiLogTag} Service account file not found at: {$serviceAccountPath}. Please check the path set in this script.");
+    http_response_code(500);
+    echo json_encode(['error' => 'Server configuration error: Firebase service account file not found. Script cannot proceed.']);
+    exit;
+}
+if (!function_exists('openssl_sign')) {
+    error_log("${phpApiLogTag} PHP openssl extension is not available or openssl_sign function not found. It is required for JWT signing.");
+    http_response_code(500);
+    echo json_encode(['error' => 'Server configuration error: PHP openssl extension is missing.']);
+    exit;
+}
+if (!ini_get('allow_url_fopen') && !function_exists('curl_init')) {
+    error_log("${phpApiLogTag} PHP allow_url_fopen is disabled and curl extension is not available. One is required for HTTP requests.");
+    http_response_code(500);
+    echo json_encode(['error' => 'Server configuration error: PHP allow_url_fopen is off and curl is not available.']);
+    exit;
+}
+
+
+$accessToken = get_google_oauth2_access_token($serviceAccountPath, $firebaseProjectId);
+
+if (!$accessToken) {
+    http_response_code(500);
+    echo json_encode(['error' => 'Failed to obtain Firebase access token. Check server logs.']);
+    exit;
+}
+
+$subscriberData = [
+    'token' => $token,
+    'domainName' => $receivedDomainName,
+    'userAgent' => $userAgent,
+];
+
+$result = add_subscriber_to_firestore($firebaseProjectId, $accessToken, $subscriberData);
+
+if (isset($result['id'])) {
+    http_response_code(201);
+    echo json_encode(['message' => 'Subscriber added successfully (via REST).', 'id' => $result['id']]);
+} else {
+    http_response_code(500);
+    echo json_encode(['error' => 'Failed to add subscriber.', 'details' => $result['details'] ?? 'Unknown Firestore error. Check server logs.']);
+}
+?>`;
+
+  return { clientScript, serviceWorkerScript, serverApiScriptPHPComposer, serverApiScriptPHPNoComposer };
 }
 
 
@@ -721,10 +1065,11 @@ export default function DomainsPage() {
                         </DialogHeader>
                         
                         <Tabs defaultValue="client-script" className="flex-grow flex flex-col overflow-hidden">
-                          <TabsList className="grid w-full grid-cols-3">
+                          <TabsList className="grid w-full grid-cols-4">
                             <TabsTrigger value="client-script">Client-Side Script (HTML)</TabsTrigger>
                             <TabsTrigger value="sw-script">Service Worker (JS)</TabsTrigger>
-                            <TabsTrigger value="server-api-php">Server-Side API (PHP)</TabsTrigger>
+                            <TabsTrigger value="server-api-php-composer">Server API (PHP - Composer)</TabsTrigger>
+                            <TabsTrigger value="server-api-php-no-composer">Server API (PHP - No Composer)</TabsTrigger>
                           </TabsList>
                           <TabsContent value="client-script" className="flex-grow overflow-auto p-1 mt-0">
                             <div className="rounded-md border bg-muted p-4">
@@ -762,29 +1107,59 @@ export default function DomainsPage() {
                               </Button>
                             </div>
                           </TabsContent>
-                           <TabsContent value="server-api-php" className="flex-grow overflow-auto p-1 mt-0">
+                           <TabsContent value="server-api-php-composer" className="flex-grow overflow-auto p-1 mt-0">
                              <div className="rounded-md border bg-muted p-4">
                               <p className="text-sm text-muted-foreground mb-1">
                                 Create a file named <code className="font-mono bg-background px-1 rounded-sm">subscribe.php</code> in the
                                 ROOT directory of your website <code className="font-mono bg-background px-1 rounded-sm">({domain.name}/subscribe.php)</code> and paste this content into it.
+                                This version requires <strong className="text-foreground">Composer</strong> and the <code className="font-mono bg-background px-1 rounded-sm">kreait/firebase-php</code> package.
                               </p>
-                              <strong className="text-sm text-destructive">IMPORTANT SETUP REQUIRED:</strong>
+                              <strong className="text-sm text-destructive">IMPORTANT SETUP REQUIRED (Composer Version):</strong>
                               <ul className="text-xs text-muted-foreground list-disc list-inside my-2 space-y-0.5">
                                 <li>Install <code className="font-mono bg-background px-1 rounded-sm">kreait/firebase-php</code> via Composer: <code className="font-mono">composer require kreait/firebase-php</code> on your server.</li>
                                 <li>Ensure Composer's autoloader is included in the PHP script (e.g., <code className="font-mono">require __DIR__ . '/vendor/autoload.php';</code>).</li>
                                 <li>Download your Firebase Admin SDK service account JSON key from Firebase Console (Project settings &gt; Service accounts).</li>
                                 <li>Securely store this JSON key file on your server (e.g., outside the web root).</li>
                                 <li>Update the <code className="font-mono bg-background px-1 rounded-sm">$serviceAccountPath</code> variable in the PHP script to the correct path of your service account key file.</li>
+                                <li>Uncomment the main PHP block in the script to enable Firebase integration.</li>
                               </ul>
                               <pre className="text-xs whitespace-pre-wrap break-all">
-                                <code>{selectedScripts.serverApiScriptPHP}</code>
+                                <code>{selectedScripts.serverApiScriptPHPComposer}</code>
                               </pre>
                               <Button 
-                                onClick={() => copyToClipboard(selectedScripts.serverApiScriptPHP, "Server-Side API (PHP) script copied.")} 
+                                onClick={() => copyToClipboard(selectedScripts.serverApiScriptPHPComposer, "Server-Side API (PHP - Composer) script copied.")} 
                                 size="sm" 
                                 className="mt-2"
                               >
-                                <Copy className="mr-2 h-4 w-4" /> Copy PHP API Script
+                                <Copy className="mr-2 h-4 w-4" /> Copy PHP Script (Composer)
+                              </Button>
+                            </div>
+                          </TabsContent>
+                           <TabsContent value="server-api-php-no-composer" className="flex-grow overflow-auto p-1 mt-0">
+                             <div className="rounded-md border bg-muted p-4">
+                              <p className="text-sm text-muted-foreground mb-1">
+                                Create a file named <code className="font-mono bg-background px-1 rounded-sm">subscribe.php</code> in the
+                                ROOT directory of your website <code className="font-mono bg-background px-1 rounded-sm">({domain.name}/subscribe.php)</code> and paste this content into it.
+                                This version <strong className="text-foreground">does NOT require Composer</strong> but is more complex. It directly uses Firebase REST APIs.
+                              </p>
+                              <strong className="text-sm text-destructive">IMPORTANT SETUP REQUIRED (No Composer Version):</strong>
+                              <ul className="text-xs text-muted-foreground list-disc list-inside my-2 space-y-0.5">
+                                 <li>Requires PHP <code className="font-mono bg-background px-1 rounded-sm">openssl</code> extension for JWT signing (very common).</li>
+                                 <li>Requires PHP <code className="font-mono bg-background px-1 rounded-sm">allow_url_fopen=On</code> in php.ini OR the <code className="font-mono bg-background px-1 rounded-sm">curl</code> extension for making HTTP requests.</li>
+                                <li>Download your Firebase Admin SDK service account JSON key from Firebase Console (Project settings &gt; Service accounts).</li>
+                                <li>Securely store this JSON key file on your server (e.g., outside the web root).</li>
+                                <li>Update the <code className="font-mono bg-background px-1 rounded-sm">$serviceAccountPath</code> variable in the PHP script to the correct path of your service account key file.</li>
+                                <li>Ensure your PHP error logging is configured to catch any issues during execution.</li>
+                              </ul>
+                              <pre className="text-xs whitespace-pre-wrap break-all">
+                                <code>{selectedScripts.serverApiScriptPHPNoComposer}</code>
+                              </pre>
+                              <Button 
+                                onClick={() => copyToClipboard(selectedScripts.serverApiScriptPHPNoComposer, "Server-Side API (PHP - No Composer) script copied.")} 
+                                size="sm" 
+                                className="mt-2"
+                              >
+                                <Copy className="mr-2 h-4 w-4" /> Copy PHP Script (No Composer)
                               </Button>
                             </div>
                           </TabsContent>
