@@ -5,11 +5,14 @@ import { collection, addDoc, serverTimestamp, Timestamp } from 'firebase/firesto
 import type { Subscriber } from '@/lib/types';
 
 export async function POST(request: NextRequest) {
+  console.log('[API /api/subscribe] Received POST request');
   try {
     const body = await request.json();
+    console.log('[API /api/subscribe] Request body:', body);
     const { token, domainName, userAgent } = body;
 
     if (!token || !domainName) {
+      console.warn('[API /api/subscribe] Missing token or domainName in request body');
       return NextResponse.json({ error: 'Missing token or domainName' }, { status: 400 });
     }
 
@@ -20,12 +23,14 @@ export async function POST(request: NextRequest) {
       subscribedAt: serverTimestamp() as Timestamp, // Firestore will set this
     };
 
+    console.log('[API /api/subscribe] Attempting to add subscriber to Firestore:', newSubscriber);
     const docRef = await addDoc(collection(db, 'subscribers'), newSubscriber);
+    console.log('[API /api/subscribe] Subscriber added successfully to Firestore with ID:', docRef.id);
     
     return NextResponse.json({ message: 'Subscriber added successfully', id: docRef.id }, { status: 201 });
 
   } catch (error) {
-    console.error('Error adding subscriber:', error);
+    console.error('[API /api/subscribe] Error adding subscriber:', error);
     let errorMessage = 'Internal Server Error';
     if (error instanceof Error) {
         errorMessage = error.message;

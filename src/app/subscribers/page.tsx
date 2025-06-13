@@ -36,15 +36,28 @@ export default function SubscribersPage() {
 
         // Fetch subscribers
         const subscribersCollection = collection(db, 'subscribers');
-        // Order by subscribedAt descending. Firestore timestamps can be used directly for ordering.
         const q = query(subscribersCollection, orderBy('subscribedAt', 'desc'));
         const querySnapshot = await getDocs(q);
         const subscribersData = querySnapshot.docs.map(docSnapshot => {
           const data = docSnapshot.data();
+          let subscribedAtStr: string;
+          if (data.subscribedAt instanceof Timestamp) {
+            subscribedAtStr = data.subscribedAt.toDate().toISOString();
+          } else if (typeof data.subscribedAt === 'string') {
+            subscribedAtStr = data.subscribedAt; // Already a string
+          } else if (data.subscribedAt && typeof data.subscribedAt.seconds === 'number' && typeof data.subscribedAt.nanoseconds === 'number') {
+            // Handle cases where it might be a plain object from Firestore (less common with serverTimestamp)
+            subscribedAtStr = new Timestamp(data.subscribedAt.seconds, data.subscribedAt.nanoseconds).toDate().toISOString();
+          }
+          else {
+            // Fallback for unexpected format
+            subscribedAtStr = new Date().toISOString(); 
+            console.warn(`Subscriber ${docSnapshot.id} has unexpected subscribedAt format:`, data.subscribedAt);
+          }
           return {
             id: docSnapshot.id,
             ...data,
-            subscribedAt: data.subscribedAt instanceof Timestamp ? data.subscribedAt.toDate().toISOString() : new Date().toISOString(),
+            subscribedAt: subscribedAtStr,
           } as Subscriber;
         });
         setSubscribers(subscribersData);
@@ -82,7 +95,6 @@ export default function SubscribersPage() {
   }, [subscribers, searchTerm, selectedDomainFilter]);
   
   const uniqueDomainNamesForFilter = useMemo(() => {
-    // Use allDomains for the filter to show domains even if they have no subscribers yet
     const names = allDomains.filter(d => d.status === 'verified').map(d => d.name);
     return ['all', ...Array.from(new Set(names))];
   }, [allDomains]);
