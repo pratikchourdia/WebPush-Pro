@@ -43,15 +43,19 @@ function generateFirebaseScript(config: FirebaseConfig, domainName: string): str
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
 
+  Ensure these script tags DO NOT have 'async' or 'defer' attributes unless
+  this WebPush Pro script is also loaded in a compatible way (e.g., also deferred).
+  Plain script tags are generally safest to ensure sequential loading.
+
   The 'firebase-messaging-sw.js' file (detailed below) also needs
   these via importScripts().
   ====================================================================
 
   WebPush Pro Integration Script for ${domainName}
-  Version: 1.5 (Enhanced Debugging for useServiceWorker, Strict Initialization)
+  Version: 1.6 (Enhanced Debugging for useServiceWorker, Strict Initialization)
 */
 
-console.log('[WebPushPro] Initializing script v1.5 for ${domainName}...');
+console.log('[WebPushPro] Initializing script v1.6 for ${domainName}...');
 
 // --- Configuration ---
 const firebaseConfig = ${JSON.stringify(config, null, 2)};
@@ -81,11 +85,11 @@ if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'functi
             console.log('[WebPushPro] Firebase app instance initialized:', CLIENT_APP_NAME);
         } catch (initError) {
             console.error('[WebPushPro] Error initializing Firebase app (' + CLIENT_APP_NAME + '):', initError);
-            firebaseApp = null; // Ensure firebaseApp is null on error
+            // firebaseApp remains null
         }
     }
 } else {
-    console.error('[WebPushPro] Firebase library not fully loaded (firebase or initializeApp is missing). Ensure firebase-app-compat.js is included on your page BEFORE this script.');
+    console.error('[WebPushPro] Firebase library not fully loaded (firebase or initializeApp is missing). Ensure firebase-app-compat.js is included on your page BEFORE this script. Check for errors from firebase-app-compat.js itself.');
 }
 
 // --- Messaging Initialization and Support Check (strictly conditional on firebaseApp) ---
@@ -95,17 +99,17 @@ if (firebaseApp) {
         if (firebase.messaging.isSupported()) {
             console.log('[WebPushPro] Firebase Messaging is supported by this browser.');
             try {
-                messaging = firebase.messaging(firebaseApp);
+                messaging = firebase.messaging(firebaseApp); // Use the specific app instance
                 console.log('[WebPushPro] Firebase Messaging service initialized for app:', CLIENT_APP_NAME, 'Messaging object:', messaging);
             } catch (messagingError) {
                 console.error('[WebPushPro] Error initializing Firebase Messaging service:', messagingError);
-                messaging = null; // Ensure messaging is null on error
+                // messaging remains null
             }
         } else {
             console.warn('[WebPushPro] Firebase Messaging is not supported in this browser for ${domainName}. Push notifications will not work. This might be due to an insecure context (HTTP instead of HTTPS), running in an iframe, or browser settings.');
         }
     } else {
-        console.error('[WebPushPro] Firebase Messaging library (firebase.messaging or firebase.messaging.isSupported) not loaded. Ensure firebase-messaging-compat.js is included on your page BEFORE this script. Check global firebase object:', window.firebase);
+        console.error('[WebPushPro] Firebase Messaging library (firebase.messaging or firebase.messaging.isSupported) not loaded. Ensure firebase-messaging-compat.js is included on your page BEFORE this script. Check global firebase object:', window.firebase, 'and look for errors from firebase-messaging-compat.js itself.');
     }
 } else {
     console.log('[WebPushPro] Firebase app ('+ CLIENT_APP_NAME +') not available, skipping Messaging initialization.');
@@ -191,18 +195,24 @@ if (firebaseApp && messaging) {
           console.log('[WebPushPro] Global firebase.messaging state: ', window.firebase.messaging);
         }
 
-
         if (messaging && typeof messaging.useServiceWorker === 'function') {
             messaging.useServiceWorker(registration);
             console.log('[WebPushPro] Firebase Messaging is using the registered service worker for app ' + CLIENT_APP_NAME);
         } else {
             console.error(
               '[WebPushPro] CRITICAL ERROR: messaging.useServiceWorker is not a function. \\n' +
-              'This usually means the Firebase Messaging Compat library (firebase-messaging-compat.js) was not loaded correctly on your page BEFORE this script. \\n' +
-              '1. VERIFY SCRIPT ORDER: Ensure firebase-app-compat.js AND firebase-messaging-compat.js <script> tags are in your HTML *before* this WebPushPro script. \\n' +
-              '2. CHECK NETWORK TAB: In browser dev tools, confirm firebase-app-compat.js and firebase-messaging-compat.js downloaded with HTTP 200 OK. \\n' +
-              '3. INSPECT LOGS: Check the console logs above for the state of "window.firebase" and "window.firebase.messaging". The "messaging" object itself is also logged below. \\n' +
-              'Messaging object:', messaging
+              'This usually means the Firebase Messaging Compat library (firebase-messaging-compat.js) was not loaded or did not execute correctly on your page BEFORE this script. \\n' +
+              'TROUBLESHOOTING STEPS: \\n' +
+              '1. CHECK CONSOLE FOR OTHER ERRORS: Look for any errors that occurred *before* this one, especially errors originating from firebase-app-compat.js or firebase-messaging-compat.js. \\n' +
+              '2. VERIFY SCRIPT ORDER AND LOADING: \\n' +
+              '   - Ensure <script src="...firebase-app-compat.js"></script> AND <script src="...firebase-messaging-compat.js"></script> tags are in your HTML. \\n' +
+              '   - They MUST appear *before* this WebPushPro script tag. \\n' +
+              '   - Check for \u0060async\u0060 or \u0060defer\u0060 attributes on these Firebase SDK script tags. If present, they might cause this script to run too early. Remove them or ensure this script is also deferred. \\n' +
+              '3. CHECK NETWORK TAB: In your browser\'s developer tools: \\n' +
+              '   - Confirm firebase-app-compat.js and firebase-messaging-compat.js downloaded with HTTP 200 OK. \\n' +
+              '   - Verify their content looks like valid Firebase SDK code. \\n' +
+              '4. INSPECT LOGS ABOVE: Review the logs for "Global firebase object state", "Global firebase.messaging state", and "Current messaging object". This can reveal if firebase.messaging was partially initialized or overwritten. \\n' +
+              'Messaging object causing the error:', messaging
             );
             return; // Stop further execution in this path
         }
@@ -238,13 +248,13 @@ if (firebaseApp && messaging) {
   It should contain AT LEAST the following:
 
   // File: firebase-messaging-sw.js (Root of your public website)
-  // Version: 1.5
+  // Version: 1.6
 
   // These scripts are REQUIRED for the service worker.
   importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
   importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-  console.log('[SW] firebase-messaging-sw.js executing (v1.5)...');
+  console.log('[SW] firebase-messaging-sw.js executing (v1.6)...');
 
   // IMPORTANT: This config MUST match the config provided for this domain in WebPush Pro
   const firebaseConfigSW = ${JSON.stringify(config, null, 2)};
@@ -252,7 +262,7 @@ if (firebaseApp && messaging) {
 
   const swAppName = '${swAppName}';
   let firebaseAppSW = null;
-  let messagingSW = null;
+  let messagingSW = null; // Renamed to avoid confusion with main thread messaging
 
   if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
     const existingSwApp = firebase.apps.find(app => app.name === swAppName);
@@ -274,7 +284,7 @@ if (firebaseApp && messaging) {
   if (firebaseAppSW) {
     if (typeof firebase.messaging === 'function') {
       try {
-        messagingSW = firebase.messaging(firebaseAppSW);
+        messagingSW = firebase.messaging(firebaseAppSW); // Initialize with the specific SW app
         console.log('[SW] Firebase Messaging service initialized in Service Worker for app:', swAppName);
 
         // Optional: Handle background messages here
