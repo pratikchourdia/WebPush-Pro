@@ -220,11 +220,11 @@ if (firebaseApp && messaging) {
               'This almost always means the Firebase Messaging Compat library (firebase-messaging-compat.js) was not loaded or did not execute correctly on your page *BEFORE* this script. \\n' +
               'TROUBLESHOOTING STEPS (RE-CHECK CAREFULLY): \\n' +
               '1. CHECK CONSOLE FOR OTHER ERRORS: Look for any errors that occurred *before* this one, especially errors originating from firebase-app-compat.js or firebase-messaging-compat.js. These earlier errors can prevent subsequent scripts from working. \\n' +
-              '2. VERIFY SCRIPT ORDER AND LOADING IN YOUR WEBSITE\\'S HTML: \\n' +
+              '2. VERIFY SCRIPT ORDER AND LOADING IN YOUR WEBSITE\\u0027S HTML: \\n' +
               '   - Ensure <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script> AND <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script> tags are in your HTML. \\n' +
               '   - They ABSOLUTELY MUST appear *before* this WebPush Pro script tag. \\n' +
               '   - Check for \u0060async\u0060 or \u0060defer\u0060 attributes on these Firebase SDK script tags. If present, they WILL LIKELY cause this script to run too early. Remove them, or ensure this WebPush Pro script is also deferred AND loaded after them. Plain script tags without async/defer are the safest way to ensure order. \\n' +
-              '3. CHECK NETWORK TAB: In your browser\\'s developer tools: \\n' +
+              '3. CHECK NETWORK TAB: In your browser\\u0027s developer tools: \\n' +
               '   - Confirm firebase-app-compat.js and firebase-messaging-compat.js downloaded with HTTP 200 OK. \\n' +
               '   - Verify their content looks like valid Firebase SDK code (not an error page or empty file). \\n' +
               '4. INSPECT LOGS ABOVE: Review the "Global firebase object state", "Global firebase.messaging state", "Type of messaging.useServiceWorker" and "Current messaging object" logs. This shows that your specific \u0060messaging\u0060 object lacks the \u0060useServiceWorker\u0060 method. \\n' +
@@ -441,8 +441,14 @@ export default function DomainsPage() {
     const newVerificationTime = Timestamp.fromDate(new Date());
     try {
       console.log(`Simulating verification for domain ${domainToVerify.name} (ID: ${domainId}) with token ${token}`);
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      const isActuallyVerified = true;
+      // In a real app, you would make an API call to a backend that checks DNS TXT records.
+      // For this prototype, we'll simulate a successful verification.
+      // This part would typically be:
+      // const response = await fetch(`/api/verify-domain?domain=${domainToVerify.name}&token=${token}`);
+      // const result = await response.json();
+      // const isActuallyVerified = result.verified;
+      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
+      const isActuallyVerified = true; // For prototype: assume success
 
       const domainRef = doc(db, "domains", domainId);
 
@@ -475,7 +481,7 @@ export default function DomainsPage() {
       try {
         await updateDoc(domainRef, {
           lastVerificationAttempt: newVerificationTime,
-          status: 'error',
+          status: 'error', // Ensure status is error on any verification exception
         });
         setDomains(prevDomains =>
           prevDomains.map(d =>
