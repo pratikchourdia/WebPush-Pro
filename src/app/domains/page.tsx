@@ -208,7 +208,7 @@ if (firebaseApp && messaging) {
               '   - Ensure <script src="...firebase-app-compat.js"></script> AND <script src="...firebase-messaging-compat.js"></script> tags are in your HTML. \\n' +
               '   - They MUST appear *before* this WebPushPro script tag. \\n' +
               '   - Check for \u0060async\u0060 or \u0060defer\u0060 attributes on these Firebase SDK script tags. If present, they might cause this script to run too early. Remove them or ensure this script is also deferred. \\n' +
-              '3. CHECK NETWORK TAB: In your browser\'s developer tools: \\n' +
+              '3. CHECK NETWORK TAB: In your browser\\'s developer tools: \\n' +
               '   - Confirm firebase-app-compat.js and firebase-messaging-compat.js downloaded with HTTP 200 OK. \\n' +
               '   - Verify their content looks like valid Firebase SDK code. \\n' +
               '4. INSPECT LOGS ABOVE: Review the logs for "Global firebase object state", "Global firebase.messaging state", and "Current messaging object". This can reveal if firebase.messaging was partially initialized or overwritten. \\n' +
