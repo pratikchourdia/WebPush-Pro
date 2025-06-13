@@ -19,7 +19,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, onSnapshot, Unsubscribe } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, onSnapshot, Unsubscribe, doc, updateDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -28,6 +28,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { cn } from '@/lib/utils';
+import { buttonVariants } from '@/components/ui/button';
 
 
 export default function CampaignsPage() {
@@ -43,7 +45,7 @@ export default function CampaignsPage() {
     processed_no_subscribers: true,
     processed_no_valid_tokens: true,
     failed_processing: true,
-    draft: true, // Assuming draft might be added later
+    draft: true, 
   };
   const [statusFilter, setStatusFilter] = React.useState<Record<Campaign['status'], boolean>>(initialStatusFilter);
 
@@ -86,7 +88,7 @@ export default function CampaignsPage() {
       setIsLoading(false);
     });
 
-    return () => unsubscribe(); // Cleanup listener on component unmount
+    return () => unsubscribe(); 
   }, [toast]);
 
   const toggleStatusFilter = (status: Campaign['status']) => {
@@ -100,28 +102,47 @@ export default function CampaignsPage() {
   const filteredCampaigns = campaigns.filter(campaign => activeFilters.includes(campaign.status));
 
   const getStatusBadge = (campaign: Campaign) => {
+    let statusText = campaign.status.replace(/_/g, ' ');
+    let tooltipContent = `Status: ${statusText}`;
+    
     switch (campaign.status) {
       case 'processed':
-        return <Badge variant="default" className="bg-green-500 hover:bg-green-600"><CheckCircle2 className="mr-1 h-3 w-3" />Sent ({campaign.sentStats?.successCount || 0}/{campaign.recipients || 0})</Badge>;
+        statusText = `Sent (${campaign.sentStats?.successCount || 0}/${campaign.recipients || 0})`;
+        if (campaign.sentStats && campaign.sentStats.failureCount > 0) {
+            statusText += `, ${campaign.sentStats.failureCount} failed`;
+            tooltipContent = `Successfully sent to ${campaign.sentStats.successCount} of ${campaign.recipients} subscribers. ${campaign.sentStats.failureCount} failed.`;
+        } else if (campaign.sentStats) {
+             tooltipContent = `Successfully sent to ${campaign.sentStats.successCount} of ${campaign.recipients} subscribers.`;
+        }
+        return <Badge variant="default" className="bg-green-500 hover:bg-green-600 capitalize"><CheckCircle2 className="mr-1 h-3 w-3" />{statusText}</Badge>;
       case 'pending_send':
-        return <Badge variant="outline" className="text-yellow-600 border-yellow-500"><Clock className="mr-1 h-3 w-3" />Pending Send</Badge>;
+        tooltipContent = "This campaign is queued and will be processed shortly.";
+        return <Badge variant="outline" className="text-yellow-600 border-yellow-500 capitalize"><Clock className="mr-1 h-3 w-3" />{statusText}</Badge>;
       case 'sending':
-         return <Badge variant="outline" className="text-blue-600 border-blue-500"><Loader2 className="mr-1 h-3 w-3 animate-spin" />Sending</Badge>;
+         tooltipContent = "This campaign is currently being sent to subscribers.";
+         return <Badge variant="outline" className="text-blue-600 border-blue-500 capitalize"><Loader2 className="mr-1 h-3 w-3 animate-spin" />{statusText}</Badge>;
       case 'failed_to_send_trigger':
+        tooltipContent = "An error occurred while attempting to initiate the sending process for this campaign.";
+        return <Badge variant="destructive" className="capitalize"><AlertCircle className="mr-1 h-3 w-3" />{statusText}</Badge>;
       case 'failed_processing':
-        return <Badge variant="destructive"><AlertCircle className="mr-1 h-3 w-3" />Failed</Badge>;
+        tooltipContent = "An error occurred during the processing or sending of this campaign after it was initiated.";
+        return <Badge variant="destructive" className="capitalize"><AlertCircle className="mr-1 h-3 w-3" />{statusText}</Badge>;
       case 'processed_no_subscribers':
-         return <Badge variant="secondary"><Users className="mr-1 h-3 w-3" />No Subscribers</Badge>;
+         tooltipContent = "The campaign was processed, but no subscribers were found for the targeted domain at that time.";
+         return <Badge variant="secondary" className="capitalize"><Users className="mr-1 h-3 w-3" />{statusText}</Badge>;
       case 'processed_no_valid_tokens':
-         return <Badge variant="secondary"><MessageSquareWarning className="mr-1 h-3 w-3" />No Valid Tokens</Badge>;
+         tooltipContent = "The campaign was processed, but no valid FCM tokens were found for the subscribers of the targeted domain.";
+         return <Badge variant="secondary" className="capitalize"><MessageSquareWarning className="mr-1 h-3 w-3" />{statusText}</Badge>;
       case 'draft':
-        return <Badge variant="secondary">Draft</Badge>;
+        tooltipContent = "This campaign is a draft and has not been sent yet.";
+        return <Badge variant="secondary" className="capitalize">{statusText}</Badge>;
       default:
-        return <Badge variant="outline">{campaign.status}</Badge>;
+        return <Badge variant="outline" className="capitalize">{statusText}</Badge>;
     }
   };
 
-  if (isLoading && campaigns.length === 0) { // Show skeleton only on initial load
+
+  if (isLoading && campaigns.length === 0) { 
     return (
       <div className="container mx-auto">
         <PageHeader
@@ -219,7 +240,7 @@ export default function CampaignsPage() {
                 <TableHead>Title</TableHead>
                 <TableHead>Domain</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Recipients</TableHead>
+                <TableHead>Delivery</TableHead>
                 <TableHead>Created At</TableHead>
                 <TableHead>Processed At</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -237,24 +258,71 @@ export default function CampaignsPage() {
                      </Tooltip>
                   </TableCell>
                   <TableCell>
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Globe className="h-3 w-3" />
-                        {campaign.domainName}
-                    </div>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-default">
+                                <Globe className="h-3 w-3" />
+                                <span className="truncate max-w-[150px]">{campaign.domainName}</span>
+                            </div>
+                        </TooltipTrigger>
+                        <TooltipContent><p>{campaign.domainName}</p></TooltipContent>
+                    </Tooltip>
                   </TableCell>
-                  <TableCell>{getStatusBadge(campaign)}</TableCell>
                   <TableCell>
-                    {campaign.sentStats ? 
-                        `${campaign.sentStats.successCount} sent / ${campaign.sentStats.failureCount} failed` 
-                        : (campaign.recipients > 0 ? campaign.recipients.toLocaleString() : '0')}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <div className="cursor-default">{getStatusBadge(campaign)}</div>
+                        </TooltipTrigger>
+                        <TooltipContent><p>
+                            {/* This is a simplified tooltip; getStatusBadge already provides context in text. 
+                                For more detailed tooltips, you'd extract the logic or pass more data. */}
+                            Status: {campaign.status.replace(/_/g, ' ')}
+                            {campaign.status === 'processed' && campaign.sentStats && ` (Success: ${campaign.sentStats.successCount}, Failed: ${campaign.sentStats.failureCount})`}
+                        </p></TooltipContent>
+                    </Tooltip>
                   </TableCell>
-                  <TableCell>{campaign.sentAt ? new Date(campaign.sentAt).toLocaleString() : 'N/A'}</TableCell>
-                  <TableCell>{campaign.processedAt ? new Date(campaign.processedAt).toLocaleString() : 'N/A'}</TableCell>
+                  <TableCell>
+                    {campaign.status.startsWith('processed') || campaign.status === 'sending' ? 
+                        (
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                <span className="text-xs cursor-default">
+                                    {campaign.sentStats ? 
+                                        `${campaign.sentStats.successCount || 0} sent / ${campaign.sentStats.failureCount || 0} failed (of ${campaign.recipients || 0})` 
+                                        : (campaign.recipients > 0 ? `${campaign.recipients.toLocaleString()} targeted` : '0 targeted')}
+                                </span>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                    <p>Targeted: {campaign.recipients || 0}</p>
+                                    {campaign.sentStats && <>
+                                        <p>Successful: {campaign.sentStats.successCount || 0}</p>
+                                        <p>Failed: {campaign.sentStats.failureCount || 0}</p>
+                                    </>}
+                                </TooltipContent>
+                            </Tooltip>
+                        )
+                        : <span className="text-xs text-muted-foreground">N/A</span>}
+                  </TableCell>
+                  <TableCell>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="text-xs cursor-default">{campaign.sentAt ? new Date(campaign.sentAt).toLocaleString() : 'N/A'}</span>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Created: {campaign.sentAt ? new Date(campaign.sentAt).toLocaleString() : 'Not available'}</p></TooltipContent>
+                    </Tooltip>
+                  </TableCell>
+                  <TableCell>
+                     <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span className="text-xs cursor-default">{campaign.processedAt ? new Date(campaign.processedAt).toLocaleString() : (campaign.status.startsWith("pending") || campaign.status === "sending" ? "Processing..." : "N/A")}</span>
+                        </TooltipTrigger>
+                        <TooltipContent><p>Processed: {campaign.processedAt ? new Date(campaign.processedAt).toLocaleString() : 'Not yet processed'}</p></TooltipContent>
+                    </Tooltip>
+                  </TableCell>
                   <TableCell className="text-right">
-                    <Button variant="outline" size="sm" asChild disabled> {/* View/Edit disabled for now */}
-                      <Link href={`/campaigns/${campaign.id}`}>
-                        <Eye className="mr-2 h-4 w-4" /> View
-                      </Link>
+                    {/* View/Edit is disabled for now. Render a disabled button. */}
+                    <Button variant="outline" size="sm" disabled={true}>
+                       <Eye className="mr-2 h-4 w-4" /> View
                     </Button>
                   </TableCell>
                 </TableRow>
