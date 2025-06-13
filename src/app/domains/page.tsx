@@ -32,95 +32,15 @@ interface GeneratedScripts {
   serviceWorkerScript: string;
 }
 
-const SCRIPT_VERSION = "1.8.3"; // Keep version updated if changes are made
+const SCRIPT_VERSION = "1.9.0"; // Revised version
 
 function generateFirebaseScripts(config: FirebaseConfig, domainName: string): GeneratedScripts {
-  const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'YOUR_WEBPUSH_PRO_APP_URL';
+  const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'YOUR_WEBPUSH_PRO_APP_URL'; // This will be the origin of the WebPushPro app itself.
   const clientAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app';
   const swAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app-sw';
 
-  // Pre-baked log prefixes for Client Script (SCRIPT_VERSION is resolved here)
   const clientLogTag = `[WebPushPro Client v${SCRIPT_VERSION}]`;
-  const clientLogInitializing = `${clientLogTag} Initializing script for ${domainName}...`;
-  const clientLogFirebaseConfig = `${clientLogTag} Firebase Config for ${domainName}:`;
-  const clientLogVapidKey = `${clientLogTag} VAPID Key for ${domainName} (first 10 chars):`;
-  const clientLogApiBaseUrl = `${clientLogTag} API Base URL:`;
-  const clientLogUsingExistingApp = `${clientLogTag} Using existing Firebase app instance:`;
-  const clientLogAppInitialized = `${clientLogTag} Firebase app instance initialized:`;
-  const clientLogErrorInitApp = `${clientLogTag} Error initializing Firebase app (${clientAppName}):`;
-  const clientLogFirebaseLibNotLoaded = `${clientLogTag} Firebase library not fully loaded (firebase or initializeApp is missing). Ensure firebase-app-compat.js is included on your page BEFORE this script. Check for errors from firebase-app-compat.js itself.`;
-  const clientLogAppAvailable = `${clientLogTag} Firebase app (${clientAppName}) is available. Proceeding with Messaging checks.`;
-  const clientLogMessagingSupported = `${clientLogTag} Firebase Messaging is supported by this browser.`;
-  const clientLogMessagingInit = `${clientLogTag} Firebase Messaging service initialized for app: ${clientAppName}. Messaging object:`;
-  const clientLogErrorMessagingInit = `${clientLogTag} Error initializing Firebase Messaging service:`;
-  const clientLogMessagingNotSupported = `${clientLogTag} Firebase Messaging is not supported in this browser for ${domainName}. Push notifications will not work. This might be due to an insecure context (HTTP instead of HTTPS), running in an iframe, or browser settings.`;
-  const clientLogMessagingLibNotLoaded = `${clientLogTag} Firebase Messaging library (firebase.messaging or firebase.messaging.isSupported) not loaded. Ensure firebase-messaging-compat.js is included on your page BEFORE this script. Check global firebase object:`;
-  const clientLogAppNotAvailable = `${clientLogTag} Firebase app (${clientAppName}) not available, skipping Messaging initialization.`;
-  const clientLogMessagingUnavailableForPerm = `${clientLogTag} Messaging not available for app ${clientAppName}, cannot request permission or get token for ${domainName}. Check previous logs for initialization errors.`;
-  const clientLogVapidMissingForPerm = `${clientLogTag} VAPID_KEY is missing for ${domainName}. Cannot get FCM token. Please configure it in WebPush Pro settings for this domain.`;
-  const clientLogRequestingPerm = `${clientLogTag} Requesting notification permission for ${domainName}...`;
-  const clientLogPermStatus = `${clientLogTag} Notification permission status for ${domainName}:`;
-  const clientLogPermGranted = `${clientLogTag} Notification permission granted for ${domainName}. Attempting to get FCM token using VAPID key (first 10 chars):`;
-  const clientLogTokenObtained = `${clientLogTag} FCM Token obtained for ${domainName}:`;
-  const clientLogSendingSubscriber = `${clientLogTag} Preparing to send subscriber data to API (${apiBaseUrl}/api/subscribe):`;
-  const clientLogApiResponseStatus = `${clientLogTag} API /api/subscribe response status:`;
-  const clientLogApiSubSuccess = `${clientLogTag} Subscription successful via API for ${domainName}. Subscriber ID:`;
-  const clientLogApiSubError = `${clientLogTag} Subscription API response error for ${domainName}. Status:`;
-  const clientLogApiFetchError = `${clientLogTag} Subscription API fetch error for ${domainName}:`;
-  const clientLogNoToken = `${clientLogTag} No registration token available for ${domainName}. Check VAPID key, SW registration/activation, permission status, or FCM setup. Ensure your site is HTTPS.`;
-  const clientLogErrorGetToken = `${clientLogTag} An error occurred while retrieving FCM token for ${domainName}:`;
-  const clientLogCommonTokenErrors = `${clientLogTag} Common token errors: Check VAPID key, ensure firebase-messaging-sw.js is in root & correctly configured (check its console logs), or service worker not active yet.`;
-  const clientLogUnableToGetPerm = `${clientLogTag} Unable to get permission to notify for ${domainName}. Permission state: `;
-  const clientLogErrorRequestPerm = `${clientLogTag} Error requesting notification permission for ${domainName}:`;
-  const clientLogSwApiSupported = `${clientLogTag} Service Worker API is supported. Attempting to register /firebase-messaging-sw.js`;
-  const clientLogSwRegistered = `${clientLogTag} SW registered for ${domainName}. Scope:`;
-  const clientLogSwRegObject = `${clientLogTag} Registration object:`;
-  const clientLogAboutToUseSw = `${clientLogTag} About to call useServiceWorker. Current messaging object:`;
-  const clientLogTypeOfUseSw = `${clientLogTag} Type of messaging.useServiceWorker:`;
-  const clientLogGlobalFbState = `${clientLogTag} Global firebase object state: `;
-  const clientLogGlobalFbMessagingState = `${clientLogTag} Global firebase.messaging state: `;
-  const clientLogGlobalFbMessagingInstanceType = `${clientLogTag} Global firebase.messaging() instance type of useServiceWorker:`;
-  const clientLogCouldNotGetGlobalMessaging = `${clientLogTag} Could not get global firebase.messaging() instance to check its useServiceWorker type.`;
-  const clientLogGlobalMessagingNotFunction = `${clientLogTag} Global firebase.messaging is not a function or firebase object is not fully available.`;
-  const clientLogUsingSw = `${clientLogTag} Firebase Messaging is using the registered service worker for app ${clientAppName}`;
-  const clientLogCriticalUseSwMissing = `${clientLogTag} CRITICAL ERROR: messaging.useServiceWorker is not a function. \nThis almost always means the Firebase Messaging Compat library (firebase-messaging-compat.js) was not loaded or did not execute correctly on your page *BEFORE* this script. \nTROUBLESHOOTING STEPS (RE-CHECK CAREFULLY): \n1. CHECK CONSOLE FOR OTHER ERRORS: Look for any errors that occurred *before* this one, especially errors originating from firebase-app-compat.js or firebase-messaging-compat.js. These earlier errors can prevent subsequent scripts from working. \n2. VERIFY SCRIPT ORDER AND LOADING IN YOUR WEBSITE'S HTML: \n   - Ensure <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"> AND <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"> tags are in your HTML. \n   - They ABSOLUTELY MUST appear *before* this WebPush Pro script tag. \n   - Check for \`async\` or \`defer\` attributes on these Firebase SDK script tags. If present, they WILL LIKELY cause this script to run too early. Remove them, or ensure this WebPush Pro script is also deferred AND loaded after them. Plain script tags without async/defer are the safest way to ensure order. \n3. CHECK NETWORK TAB: In your browser's developer tools: \n   - Confirm firebase-app-compat.js and firebase-messaging-compat.js downloaded with HTTP 200 OK. \n   - Verify their content looks like valid Firebase SDK code (not an error page or empty file). \n4. INSPECT LOGS ABOVE: Review the "Global firebase object state", "Global firebase.messaging state", "Type of messaging.useServiceWorker" and "Current messaging object" logs. This shows that your specific \`messaging\` object lacks the \`useServiceWorker\` method. \nMessaging object causing the error:`;
-  const clientLogWaitingSwReady = `${clientLogTag} Waiting for Service Worker to be ready (controller active)...`;
-  const clientLogSwReady = `${clientLogTag} Service Worker is ready. Registration:`;
-  const clientLogProceedingReqPerm = `${clientLogTag} Proceeding to request permission and get token...`;
-  const clientLogSwReadyError = `${clientLogTag} Service Worker .ready() promise rejected:`;
-  const clientLogSwRegFailed = `${clientLogTag} SW registration failed for ${domainName}:`;
-  const clientLogSwRegFailedHelp = `${clientLogTag} Ensure firebase-messaging-sw.js is in the root directory of your site and accessible. Check its content and Firebase config.`;
-  const clientLogSwNotSupported = `${clientLogTag} Service workers are not supported in this browser for ${domainName}. Push notifications will not work.`;
-  const clientLogFbOrMessagingNotInit = `${clientLogTag} Firebase app or messaging service not successfully initialized for ${domainName}. Service Worker setup and token retrieval skipped. Check previous logs for errors (e.g., missing Firebase SDK script includes on your page).`;
-  const clientLogFoundGlobalFirebase = `${clientLogTag} Found global firebase object. firebase.SDK_VERSION:`;
-  const clientLogFirebaseMessagingAvailable = `${clientLogTag} firebase.messaging is available. firebase.messaging.SDK_VERSION:`;
-  const clientLogFirebaseMessagingNotFullyAvailable = `${clientLogTag} firebase.messaging is NOT fully available or firebase.messaging.SDK_VERSION is missing. Ensure firebase-messaging-compat.js loaded AFTER firebase-app-compat.js and BEFORE this script.`;
-  const clientLogGlobalFirebaseNotFound = `${clientLogTag} Global firebase object NOT FOUND or firebase.SDK_VERSION is missing. Ensure firebase-app-compat.js is loaded on your page BEFORE this script.`;
-  const clientLogDiagnosticUseSwOnMessaging = `${clientLogTag} DIAGNOSTIC: Keys in current messaging instance:`;
-  const clientLogDiagnosticErrorIteratingMessaging = `${clientLogTag} DIAGNOSTIC: Error iterating messaging keys:`;
-  const clientLogDiagnosticUseSwExists = `${clientLogTag} DIAGNOSTIC: Does 'useServiceWorker' method exist and is a function on messaging instance (iterated)? `;
-  const clientLogDiagnosticTypeOfUseSw = `${clientLogTag} DIAGNOSTIC: typeof messaging.useServiceWorker: `;
-  const clientLogDiagnosticMessagingInstanceNull = `${clientLogTag} DIAGNOSTIC: Messaging instance is null or undefined before checking useServiceWorker.`;
-  const clientLogDiagnosticGlobalMessagingFactory = `${clientLogTag} DIAGNOSTIC: Global firebase.messaging (factory function):`;
-  const clientLogDiagnosticGlobalMessagingIsSupportedExists = `${clientLogTag} DIAGNOSTIC: Global firebase.messaging.isSupported exists.`;
-  const clientLogDiagnosticGlobalMessagingIsSupportedNotExists = `${clientLogTag} DIAGNOSTIC: Global firebase.messaging.isSupported does NOT exist.`;
-  const clientLogDiagnosticGlobalMessagingFactoryNotAvailable = `${clientLogTag} DIAGNOSTIC: Global firebase or firebase.messaging (factory) not available for diagnostics.`;
-  const clientLogCriticalUseSwCheck = `${clientLogTag} CRITICAL (useServiceWorker-check): 'messaging.useServiceWorker' is NOT a function. This is the primary failure point.\n    - Local 'messaging' object type: `;
-
-
-  // Pre-baked log prefixes for Service Worker Script (SCRIPT_VERSION is resolved here)
   const swLogTag = `[WebPushPro SW v${SCRIPT_VERSION}]`;
-  const swLogExecuting = `${swLogTag} firebase-messaging-sw.js executing for ${domainName}...`;
-  const swLogInitialized = `${swLogTag} Firebase app initialized in SW:`;
-  const swLogErrorInitApp = `${swLogTag} Error initializing Firebase app in SW:`;
-  const swLogUsingExisting = `${swLogTag} Using existing Firebase app in SW:`;
-  const swLogCoreSdkMissing = `${swLogTag} Firebase core SDK (firebase-app-compat.js) not imported or available in SW.`;
-  const swLogMessagingInit = `${swLogTag} Firebase Messaging service initialized in SW for app:`;
-  const swLogErrorMessagingInit = `${swLogTag} Error initializing Firebase Messaging in SW:`;
-  const swLogMessagingSdkMissing = `${swLogTag} Firebase Messaging SDK or Firebase App SW not available for SW Messaging init.`;
-  const swLogSetupComplete = `${swLogTag} SW setup attempt complete for ${domainName}.`;
-  const swOnBackgroundMessageLogPrefix = `${swLogTag} Received background message:`;
-
 
   const clientScript = `
 /*
@@ -131,213 +51,131 @@ function generateFirebaseScripts(config: FirebaseConfig, domainName: string): Ge
   1. Firebase SDKs MUST be loaded BEFORE this script. Add these to your <head> or before this script tag:
      <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"><\/script>
      <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"><\/script>
-  2. NO ASYNC/DEFER on Firebase SDKs: Ensure these Firebase SDK script tags DO NOT have 'async' or 'defer' attributes.
-     If they do, this WebPushPro script may run too early. Remove those attributes, or ensure this script is
-     also comparably deferred AND loaded AFTER them. Plain script tags are safest.
-  3. CHECK NETWORK TAB: In your browser's developer tools, confirm both Firebase SDKs download with HTTP 200 (OK)
-     and their content appears to be valid Firebase JavaScript.
-  4. CHECK CONSOLE FOR EARLIER ERRORS: Any errors from 'firebase-app-compat.js' or 'firebase-messaging-compat.js'
-     themselves will prevent them from working.
+  2. NO ASYNC/DEFER on Firebase SDKs: For simplicity and to ensure order, avoid 'async' or 'defer' on these.
+     If you must use them, this WebPush Pro script must also be loaded compatibly AFTER them.
 */
-console.log(${JSON.stringify(clientLogInitializing)});
-if (typeof firebase !== 'undefined' && firebase.SDK_VERSION) {
-    console.log(${JSON.stringify(clientLogFoundGlobalFirebase)}, firebase.SDK_VERSION);
-    if (firebase.messaging && typeof firebase.messaging.isSupported === 'function' && firebase.messaging.SDK_VERSION) { 
-        console.log(${JSON.stringify(clientLogFirebaseMessagingAvailable)}, firebase.messaging.SDK_VERSION);
-    } else {
-        console.warn(${JSON.stringify(clientLogFirebaseMessagingNotFullyAvailable)});
-    }
-} else {
-    console.error(${JSON.stringify(clientLogGlobalFirebaseNotFound)});
-}
+console.log('${clientLogTag} Initializing for ${domainName}.');
 
 // --- Configuration ---
 const firebaseConfig = ${JSON.stringify(config, null, 2)};
-console.log(${JSON.stringify(clientLogFirebaseConfig)}, firebaseConfig);
-
 const VAPID_KEY = '${config.vapidKey || ""}';
-console.log(${JSON.stringify(clientLogVapidKey)}, VAPID_KEY ? VAPID_KEY.substring(0, 10) + '...' : 'NOT PROVIDED - ESSENTIAL FOR FCM TOKEN');
-
-const API_BASE_URL = '${apiBaseUrl}';
-console.log(${JSON.stringify(clientLogApiBaseUrl)}, API_BASE_URL);
-
+const API_BASE_URL = '${apiBaseUrl}'; // URL of YOUR WebPush Pro app for the API call
 const CLIENT_APP_NAME = '${clientAppName}';
+const DOMAIN_NAME = '${domainName}';
 
-// --- Firebase Initialization (Client) ---
 let firebaseApp = null;
 let messaging = null;
 
 if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
+  try {
     const existingApp = firebase.apps.find(app => app.name === CLIENT_APP_NAME);
     if (existingApp) {
-        firebaseApp = existingApp;
-        console.log(${JSON.stringify(clientLogUsingExistingApp)}, CLIENT_APP_NAME);
+      firebaseApp = existingApp;
     } else {
-        try {
-            firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
-            console.log(${JSON.stringify(clientLogAppInitialized)}, CLIENT_APP_NAME);
-        } catch (initError) {
-            console.error(${JSON.stringify(clientLogErrorInitApp)}, initError);
-        }
+      firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
     }
+    console.log('${clientLogTag} Firebase app (' + CLIENT_APP_NAME + ') initialized/retrieved.');
+  } catch (initError) {
+    console.error('${clientLogTag} Error initializing Firebase app (' + CLIENT_APP_NAME + '):', initError);
+  }
 } else {
-    console.error(${JSON.stringify(clientLogFirebaseLibNotLoaded)});
+  console.error('${clientLogTag} Firebase library (firebase.initializeApp) not found. Ensure firebase-app-compat.js is loaded BEFORE this script.');
 }
 
-// --- Messaging Initialization and Support Check (strictly conditional on firebaseApp) ---
 if (firebaseApp) {
-    console.log(${JSON.stringify(clientLogAppAvailable)});
-    if (typeof firebase.messaging === 'function' && typeof firebase.messaging.isSupported === 'function') {
-        if (firebase.messaging.isSupported()) {
-            console.log(${JSON.stringify(clientLogMessagingSupported)});
-            try {
-                messaging = firebase.messaging(firebaseApp); 
-                console.log(${JSON.stringify(clientLogMessagingInit)}, messaging);
-            } catch (messagingError) {
-                console.error(${JSON.stringify(clientLogErrorMessagingInit)}, messagingError);
-            }
-        } else {
-            console.warn(${JSON.stringify(clientLogMessagingNotSupported)});
-        }
+  if (typeof firebase.messaging === 'function' && typeof firebase.messaging.isSupported === 'function') {
+    if (firebase.messaging.isSupported()) {
+      try {
+        messaging = firebase.messaging(firebaseApp);
+        console.log('${clientLogTag} Firebase Messaging service instance created for app: ' + CLIENT_APP_NAME);
+      } catch (messagingError) {
+        console.error('${clientLogTag} Error creating Firebase Messaging service instance:', messagingError);
+      }
     } else {
-        console.error(${JSON.stringify(clientLogMessagingLibNotLoaded)}, window.firebase, 'and look for errors from firebase-messaging-compat.js itself.');
+      console.warn('${clientLogTag} Firebase Messaging is not supported by this browser (e.g., HTTP, iframe).');
     }
-} else {
-    console.log(${JSON.stringify(clientLogAppNotAvailable)});
+  } else {
+    console.error('${clientLogTag} Firebase Messaging (firebase.messaging or firebase.messaging.isSupported) not found or not a function. Ensure firebase-messaging-compat.js loaded AFTER firebase-app-compat.js and BEFORE this script.');
+  }
 }
 
-
-// --- Subscription Logic ---
-function requestPermissionAndGetToken() {
+function requestAndSendToken() {
   if (!messaging) {
-    console.error(${JSON.stringify(clientLogMessagingUnavailableForPerm)});
+    console.error('${clientLogTag} Messaging service not available. Cannot get token.');
     return;
   }
   if (!VAPID_KEY) {
-    console.error(${JSON.stringify(clientLogVapidMissingForPerm)});
+    console.error('${clientLogTag} VAPID_KEY is missing. Cannot get FCM token.');
     return;
   }
 
-  console.log(${JSON.stringify(clientLogRequestingPerm)});
   Notification.requestPermission().then((permission) => {
-    console.log(${JSON.stringify(clientLogPermStatus)}, permission);
     if (permission === 'granted') {
-      console.log(${JSON.stringify(clientLogPermGranted)}, VAPID_KEY.substring(0, 10) + '...');
+      console.log('${clientLogTag} Notification permission granted.');
       messaging.getToken({ vapidKey: VAPID_KEY })
         .then((currentToken) => {
           if (currentToken) {
-            console.log(${JSON.stringify(clientLogTokenObtained)}, currentToken.substring(0, 20) + '...');
-            const subscriberData = {
-              token: currentToken,
-              domainName: '${domainName}',
-              userAgent: navigator.userAgent
-            };
-            console.log(${JSON.stringify(clientLogSendingSubscriber)}, subscriberData);
-
+            console.log('${clientLogTag} FCM Token obtained (first 20 chars):', currentToken.substring(0,20) + '...');
+            const subscriberData = { token: currentToken, domainName: DOMAIN_NAME, userAgent: navigator.userAgent };
             fetch(API_BASE_URL + '/api/subscribe', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(subscriberData)
             })
-            .then(response => {
-              console.log(${JSON.stringify(clientLogApiResponseStatus)}, response.status);
-              return response.json().then(data => ({ ok: response.ok, status: response.status, data }));
+            .then(response => response.json().then(data => ({ok: response.ok, status: response.status, data })))
+            .then(({ok, status, data}) => {
+              if (ok) console.log('${clientLogTag} Subscription API success:', data);
+              else console.error('${clientLogTag} Subscription API error. Status:', status, 'Response:', data);
             })
-            .then(({ ok, status, data }) => {
-              if (ok && data.id) {
-                console.log(${JSON.stringify(clientLogApiSubSuccess)}, data.id, 'Full Response:', data);
-              } else {
-                console.error(${JSON.stringify(clientLogApiSubError)}, status, 'Response Data:', data);
-              }
-            })
-            .catch(err => {
-              console.error(${JSON.stringify(clientLogApiFetchError)}, err);
-            });
+            .catch(err => console.error('${clientLogTag} Subscription API fetch error:', err));
           } else {
-            console.warn(${JSON.stringify(clientLogNoToken)});
+            console.warn('${clientLogTag} No FCM registration token available. Ensure SW is active, VAPID key is correct, and site is HTTPS.');
           }
         }).catch((err) => {
-          console.error(${JSON.stringify(clientLogErrorGetToken)}, err);
-          console.error(${JSON.stringify(clientLogCommonTokenErrors)});
+          console.error('${clientLogTag} Error retrieving FCM token:', err);
         });
     } else {
-      console.warn(\`\${${JSON.stringify(clientLogUnableToGetPerm)}}\` + permission);
+      console.warn('${clientLogTag} Notification permission not granted:', permission);
     }
   }).catch(err => {
-    console.error(${JSON.stringify(clientLogErrorRequestPerm)}, err);
+    console.error('${clientLogTag} Error requesting notification permission:', err);
   });
 }
 
-// --- Service Worker Registration and Token Retrieval ---
 if (firebaseApp && messaging) {
   if ('serviceWorker' in navigator) {
-    console.log(${JSON.stringify(clientLogSwApiSupported)});
-    navigator.serviceWorker.register('/firebase-messaging-sw.js') 
+    navigator.serviceWorker.register('/firebase-messaging-sw.js')
       .then(function(registration) {
-        console.log(${JSON.stringify(clientLogSwRegistered)}, registration.scope);
-        console.log(${JSON.stringify(clientLogSwRegObject)}, registration);
+        console.log('${clientLogTag} Service Worker registered. Scope:', registration.scope);
         
-        console.log(${JSON.stringify(clientLogAboutToUseSw)}, messaging);
-        console.log(${JSON.stringify(clientLogTypeOfUseSw)}, typeof messaging.useServiceWorker);
-        console.log(${JSON.stringify(clientLogGlobalFbState)}, window.firebase);
-
-        if (window.firebase && typeof window.firebase.messaging === 'function') {
-            console.log(${JSON.stringify(clientLogGlobalFbMessagingState)}, window.firebase.messaging);
-            try { 
-                const globalMessagingInstance = window.firebase.messaging();
-                console.log(${JSON.stringify(clientLogGlobalFbMessagingInstanceType)}, typeof globalMessagingInstance.useServiceWorker);
-            } catch(e_diag_global_messaging) { 
-                console.warn(${JSON.stringify(clientLogCouldNotGetGlobalMessaging)}, e_diag_global_messaging);
-            }
+        // CRITICAL CHECK
+        if (typeof messaging.useServiceWorker === 'function') {
+          messaging.useServiceWorker(registration);
+          console.log('${clientLogTag} Firebase Messaging is now using the Service Worker.');
+          navigator.serviceWorker.ready.then(function(swReady) {
+            console.log('${clientLogTag} Service Worker is ready. Attempting to get token.');
+            requestAndSendToken();
+          }).catch(swReadyErr => console.error('${clientLogTag} SW .ready() error:', swReadyErr));
         } else {
-             console.log(${JSON.stringify(clientLogGlobalMessagingNotFunction)});
-        }
-
-        if (messaging) {
-            try {
-                let keys = Object.keys(messaging);
-                console.log(${JSON.stringify(clientLogDiagnosticUseSwOnMessaging)}, keys.join(', '));
-                let hasMethod = keys.includes('useServiceWorker') && typeof messaging.useServiceWorker === 'function';
-                console.log(${JSON.stringify(clientLogDiagnosticUseSwExists)}\`\${hasMethod}\`);
-            } catch (e_iter) {
-                console.error(${JSON.stringify(clientLogDiagnosticErrorIteratingMessaging)}, e_iter);
-            }
-            console.log(${JSON.stringify(clientLogDiagnosticTypeOfUseSw)}\`\${typeof messaging.useServiceWorker}\`);
-        } else {
-            console.warn(${JSON.stringify(clientLogDiagnosticMessagingInstanceNull)});
-        }
-        
-        if (messaging && typeof messaging.useServiceWorker === 'function') {
-            messaging.useServiceWorker(registration);
-            console.log(${JSON.stringify(clientLogUsingSw)});
-            
-            navigator.serviceWorker.ready.then(function(swReady) {
-                console.log(${JSON.stringify(clientLogSwReady)}, swReady);
-                console.log(${JSON.stringify(clientLogProceedingReqPerm)});
-                requestPermissionAndGetToken();
-            }).catch(function(swReadyError){
-                console.error(${JSON.stringify(clientLogSwReadyError)}, swReadyError);
-            });
-
-        } else {
-            let errorDetail = \`\${typeof messaging}\\n\`;
-            if (messaging) {
-              errorDetail += \`    - Local 'messaging.useServiceWorker' type: \${typeof messaging.useServiceWorker}\\n\`;
-            } else {
-              errorDetail += \`    - Local 'messaging' object is null/undefined.\\n\`;
-            }
-            console.error(\`\${${JSON.stringify(clientLogCriticalUseSwCheck)}}\${errorDetail}\`, messaging);
-            return;
+          console.error(
+            '${clientLogTag} CRITICAL ERROR: messaging.useServiceWorker is NOT a function.\\n' +
+            'This means firebase-messaging-compat.js did not load or execute correctly *BEFORE* this script, OR it failed to augment the Firebase messaging service.\\n' +
+            'TROUBLESHOOTING ON YOUR WEBSITE (' + DOMAIN_NAME + '):\\n' +
+            '1. VERIFY SCRIPT TAGS IN HTML: <script src="...firebase-app-compat.js"><\\/script> THEN <script src="...firebase-messaging-compat.js"><\\/script> MUST appear BEFORE this WebPushPro script.\\n' +
+            '2. NO ASYNC/DEFER: Remove async/defer from Firebase SDK script tags for simplest loading order.\\n' +
+            '3. CHECK CONSOLE: Look for errors from firebase-app-compat.js or firebase-messaging-compat.js themselves.\\n' +
+            '4. CHECK NETWORK TAB: Ensure both Firebase SDKs load with HTTP 200 (OK) and have valid JS content.\\n' +
+            'Current messaging object:', messaging
+          );
         }
       }).catch(function(error) {
-        console.error(${JSON.stringify(clientLogSwRegFailed)}, error);
-        console.error(${JSON.stringify(clientLogSwRegFailedHelp)});
+        console.error('${clientLogTag} Service Worker registration failed:', error);
       });
   } else {
-    console.warn(${JSON.stringify(clientLogSwNotSupported)});
+    console.warn('${clientLogTag} Service workers are not supported in this browser.');
   }
 } else {
-  console.warn(${JSON.stringify(clientLogFbOrMessagingNotInit)});
+  console.warn('${clientLogTag} Firebase app or messaging service not initialized. Skipping SW setup and token retrieval.');
 }
 `;
 
@@ -352,55 +190,53 @@ if (firebaseApp && messaging) {
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-console.log(${JSON.stringify(swLogExecuting)});
+console.log('${swLogTag} firebase-messaging-sw.js executing for ${domainName}.');
 
 const firebaseConfigSW = ${JSON.stringify(config, null, 2)};
-const SW_APP_NAME_INTERNAL = '${swAppName}';
+const SW_APP_NAME_INTERNAL = '${swAppName}'; // Separate name for SW app instance
 
 let firebaseAppSW = null;
 
 if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
-  const existingSwApp = firebase.apps.find(app => app.name === SW_APP_NAME_INTERNAL);
-  if (existingSwApp) {
+  try {
+    const existingSwApp = firebase.apps.find(app => app.name === SW_APP_NAME_INTERNAL);
+    if (existingSwApp) {
       firebaseAppSW = existingSwApp;
-      console.log(${JSON.stringify(swLogUsingExisting)}, SW_APP_NAME_INTERNAL);
-  } else {
-      try {
-        firebaseAppSW = firebase.initializeApp(firebaseConfigSW, SW_APP_NAME_INTERNAL);
-        console.log(${JSON.stringify(swLogInitialized)}, SW_APP_NAME_INTERNAL);
-      } catch (e) {
-        console.error(${JSON.stringify(swLogErrorInitApp)}, e);
-      }
+    } else {
+      firebaseAppSW = firebase.initializeApp(firebaseConfigSW, SW_APP_NAME_INTERNAL);
+    }
+    console.log('${swLogTag} Firebase app (' + SW_APP_NAME_INTERNAL + ') initialized/retrieved in SW.');
+  } catch (e) {
+    console.error('${swLogTag} Error initializing Firebase app in SW:', e);
   }
 } else {
-   console.error(${JSON.stringify(swLogCoreSdkMissing)});
+  console.error('${swLogTag} Firebase Core SDK (firebase.initializeApp) not available in SW. importScripts failed?');
 }
 
 if (firebaseAppSW && typeof firebase.messaging === 'function') {
   try {
     const messagingSW = firebase.messaging(firebaseAppSW);
-    console.log(${JSON.stringify(swLogMessagingInit)}, SW_APP_NAME_INTERNAL);
+    console.log('${swLogTag} Firebase Messaging service instance created in SW for app: ' + SW_APP_NAME_INTERNAL);
 
-    // Optional: Handle background messages here
+    // Optional: Handle background messages here if needed in the future
     // messagingSW.onBackgroundMessage(function(payload) {
-    //   console.log(${JSON.stringify(swOnBackgroundMessageLogPrefix)}, payload); 
-    //   const notificationTitle = payload.notification?.title || 'New Message';
+    //   console.log('${swLogTag} Received background message:', payload);
+    //   // Customize notification display logic here
+    //   const notificationTitle = payload.notification?.title || 'Background Message';
     //   const notificationOptions = {
-    //     body: payload.notification?.body || 'You have a new message.',
-    //     icon: payload.notification?.icon || '/firebase-logo.png' // Consider a default icon you host
+    //     body: payload.notification?.body || 'Received a message.',
+    //     icon: payload.notification?.icon || '/default-icon.png'
     //   };
     //   return self.registration.showNotification(notificationTitle, notificationOptions);
     // });
   } catch (e) {
-    console.error(${JSON.stringify(swLogErrorMessagingInit)}, e);
+    console.error('${swLogTag} Error creating Firebase Messaging service instance in SW:', e);
   }
 } else {
-  console.error(${JSON.stringify(swLogMessagingSdkMissing)});
+  console.error('${swLogTag} Firebase app in SW not initialized or firebase.messaging not available. Cannot setup SW messaging.');
 }
-
-console.log(${JSON.stringify(swLogSetupComplete)});
+console.log('${swLogTag} SW setup attempt complete for ${domainName}.');
 `;
-
   return { clientScript, serviceWorkerScript };
 }
 
@@ -811,7 +647,4 @@ export default function DomainsPage() {
     </div>
   );
 }
-
-    
-
     
