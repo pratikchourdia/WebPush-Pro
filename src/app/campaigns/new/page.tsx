@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sparkles, Edit3, Send, Eye, Image as ImageIcon, Globe, Loader2 } from "lucide-react";
+import { Sparkles, Edit3, Send, Eye, Image as ImageIcon, Globe, Loader2, CheckCircle } from "lucide-react";
 import Image from 'next/image';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { generateNotificationContent, GenerateNotificationContentInput, GenerateNotificationContentOutput } from '@/ai/flows/generate-notification-content';
@@ -40,6 +40,7 @@ export default function NewCampaignPage() {
   const [pageContent, setPageContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSending, setIsSending] = useState(false); // For the API call to send
   const [activeTab, setActiveTab] = useState("ai-composer");
   const { toast } = useToast();
   const [verifiedDomains, setVerifiedDomains] = useState<Domain[]>([]);
@@ -116,6 +117,7 @@ export default function NewCampaignPage() {
       return;
     }
 
+    let campaignDocId = '';
     try {
       const campaignData: Omit<Campaign, 'id'> = {
         title: formData.title,
@@ -124,20 +126,58 @@ export default function NewCampaignPage() {
         targetUrl: formData.targetUrl || '',
         domainId: selectedDomain.id,
         domainName: selectedDomain.name,
-        sentAt: new Date().toISOString(),
-        status: 'sent',
-        recipients: 0, // Placeholder - actual recipient count would be complex
+        sentAt: new Date().toISOString(), // Will be overwritten by server timestamp on send if we use that
+        status: 'pending_send', // Initial status before triggering send
+        recipients: 0, 
+        sentStats: { successCount: 0, failureCount: 0 },
       };
       
       const docRef = await addDoc(collection(db, 'campaigns'), campaignData);
-      toast({ title: "Campaign Sent!", description: `Campaign "${formData.title}" has been successfully created with ID: ${docRef.id}.` });
-      setFormData(initialFormData); // Reset form
+      campaignDocId = docRef.id;
+      toast({ title: "Campaign Saved!", description: `Campaign "${formData.title}" created. Triggering send...`, variant: "default" });
+      setFormData(initialFormData); 
       setPageContent('');
-    } catch (error) {
-      console.error("Error sending campaign: ", error);
-      toast({ title: "Error Sending Campaign", description: "Could not save campaign to database.", variant: "destructive" });
+
+      // Now trigger the actual sending via API
+      setIsSending(true);
+      const sendResponse = await fetch('/api/campaigns/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ campaignId: campaignDocId }),
+      });
+
+      const sendResult = await sendResponse.json();
+
+      if (sendResponse.ok) {
+        toast({ 
+          title: "Campaign Processing Initiated", 
+          description: `Sending to ${sendResult.totalSubscribers || 0} subscribers. Success: ${sendResult.successCount || 0}, Failed: ${sendResult.failureCount || 0}. Check campaign list for final status.`,
+          variant: "default",
+          duration: 7000,
+        });
+      } else {
+        throw new Error(sendResult.error || 'Failed to trigger campaign send API.');
+      }
+
+    } catch (error: any) {
+      console.error("Error creating/sending campaign: ", error);
+      toast({ 
+        title: "Campaign Error", 
+        description: `Failed: ${error.message || 'Could not save or send campaign.'}`, 
+        variant: "destructive" 
+      });
+      // If campaign was created but sending failed, update its status
+      if (campaignDocId) {
+        try {
+            const campaignRef = (await import('firebase/firestore')).doc(db, 'campaigns', campaignDocId);
+            await (await import('firebase/firestore')).updateDoc(campaignRef, { status: 'failed_to_send_trigger' });
+        } catch (updateError) {
+            console.error("Failed to update campaign status to error:", updateError);
+        }
+      }
     } finally {
       setIsSubmitting(false);
+      setIsSending(false);
     }
   };
 
@@ -146,7 +186,7 @@ export default function NewCampaignPage() {
   useEffect(() => {
     if (formData.imageUrl && formData.imageUrl.match(/\.(jpeg|jpg|gif|png)$/i)) {
       setPreviewImageUrl(formData.imageUrl);
-    } else if (formData.imageUrl) {
+    } else if (formData.imageUrl) { // If it's a URL but not a direct image link, use placeholder
       setPreviewImageUrl(`https://placehold.co/300x200.png`);
     } else {
       setPreviewImageUrl(null);
@@ -187,7 +227,7 @@ export default function NewCampaignPage() {
                       className="text-base"
                     />
                   </div>
-                  <Button type="button" onClick={handleGenerateWithAI} disabled={isGenerating || !pageContent.trim()} className="w-full sm:w-auto">
+                  <Button type="button" onClick={handleGenerateWithAI} disabled={isGenerating || isSubmitting || isSending || !pageContent.trim()} className="w-full sm:w-auto">
                     {isGenerating ? (
                       <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
                     ) : (
@@ -204,7 +244,6 @@ export default function NewCampaignPage() {
                   <CardDescription>Manually craft your notification content.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Content for manual composer might be just using the fields below */}
                   <p className="text-sm text-muted-foreground">Use the "Notification Details" section below to compose your message manually.</p>
                 </CardContent>
               </Card>
@@ -221,7 +260,7 @@ export default function NewCampaignPage() {
                ) : (
                 <div>
                     <Label htmlFor="domainId">Target Domain</Label>
-                    <Select value={formData.domainId} onValueChange={handleDomainChange} name="domainId" required>
+                    <Select value={formData.domainId} onValueChange={handleDomainChange} name="domainId" required disabled={isSubmitting || isSending}>
                       <SelectTrigger className="w-full text-base">
                         <SelectValue placeholder="Select a verified domain" />
                       </SelectTrigger>
@@ -237,7 +276,7 @@ export default function NewCampaignPage() {
                   </div>
                )}
 
-               {isGenerating && activeTab === 'ai-composer' ? (
+               {(isGenerating && activeTab === 'ai-composer') ? (
                 <>
                   <div><Label>Title</Label><Skeleton className="h-10 w-full" /></div>
                   <div><Label>Body</Label><Skeleton className="h-20 w-full" /></div>
@@ -247,27 +286,27 @@ export default function NewCampaignPage() {
                 <>
                   <div>
                     <Label htmlFor="title">Title</Label>
-                    <Input id="title" name="title" value={formData.title} onChange={handleInputChange} placeholder="Notification Title" required className="text-base"/>
+                    <Input id="title" name="title" value={formData.title} onChange={handleInputChange} placeholder="Notification Title" required className="text-base" disabled={isSubmitting || isSending}/>
                   </div>
                   <div>
                     <Label htmlFor="body">Body</Label>
-                    <Textarea id="body" name="body" value={formData.body} onChange={handleInputChange} placeholder="Notification body content..." required rows={3} className="text-base"/>
+                    <Textarea id="body" name="body" value={formData.body} onChange={handleInputChange} placeholder="Notification body content..." required rows={3} className="text-base" disabled={isSubmitting || isSending}/>
                   </div>
                   <div>
                     <Label htmlFor="imageUrl">Image URL (Optional)</Label>
-                    <Input id="imageUrl" name="imageUrl" type="url" value={formData.imageUrl} onChange={handleInputChange} placeholder="https://example.com/image.png" className="text-base"/>
+                    <Input id="imageUrl" name="imageUrl" type="url" value={formData.imageUrl} onChange={handleInputChange} placeholder="https://example.com/image.png" className="text-base" disabled={isSubmitting || isSending}/>
                   </div>
                 </>
               )}
               <div>
                 <Label htmlFor="targetUrl">Target URL (Optional)</Label>
-                <Input id="targetUrl" name="targetUrl" type="url" value={formData.targetUrl} onChange={handleInputChange} placeholder="https://example.com/target-page" className="text-base"/>
+                <Input id="targetUrl" name="targetUrl" type="url" value={formData.targetUrl} onChange={handleInputChange} placeholder="https://example.com/target-page" className="text-base" disabled={isSubmitting || isSending}/>
               </div>
             </CardContent>
             <CardFooter>
-              <Button type="submit" className="w-full sm:w-auto" disabled={isGenerating || isSubmitting || isLoadingDomains || !formData.domainId}>
-                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                {isSubmitting ? "Sending..." : "Send Notification"}
+              <Button type="submit" className="w-full sm:w-auto" disabled={isGenerating || isSubmitting || isSending || isLoadingDomains || !formData.domainId}>
+                {isSubmitting || isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                {isSubmitting ? "Saving..." : (isSending ? "Sending..." : "Save & Send Notification")}
               </Button>
             </CardFooter>
           </Card>
