@@ -33,7 +33,7 @@ interface GeneratedScripts {
 }
 
 // Updated Script Version
-const SCRIPT_VERSION = "1.8.0";
+const SCRIPT_VERSION = "1.8.1"; // Keep this version as the core logic change was for diagnostics
 
 function generateFirebaseScripts(config: FirebaseConfig, domainName: string): GeneratedScripts {
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'YOUR_WEBPUSH_PRO_APP_URL';
@@ -45,145 +45,193 @@ function generateFirebaseScripts(config: FirebaseConfig, domainName: string): Ge
   WebPush Pro - Client Integration Script for ${domainName}
   Version: ${SCRIPT_VERSION}
   
-  INSTRUCTIONS:
-  1. Place this script in your website's HTML, ideally before the closing </body> tag.
-  2. CRITICAL: Ensure Firebase SDKs are loaded BEFORE this script. Add these to your <head> or before this script:
+  CRITICAL PREREQUISITES - CHECK THESE ON YOUR WEBSITE (${domainName}):
+  1. Firebase SDKs MUST be loaded BEFORE this script. Add these to your <head> or before this script tag:
      <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
      <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
-  3. Create a 'firebase-messaging-sw.js' file in the ROOT of your website 
-     (e.g., https://${domainName}/firebase-messaging-sw.js)
-     and paste the "Service Worker Script" content into it.
+  2. NO ASYNC/DEFER on Firebase SDKs: Ensure these Firebase SDK script tags DO NOT have 'async' or 'defer' attributes.
+     If they do, this WebPushPro script may run too early. Remove those attributes, or ensure this script is
+     also comparably deferred AND loaded AFTER them. Plain script tags are safest.
+  3. CHECK NETWORK TAB: In your browser's developer tools, confirm both Firebase SDKs download with HTTP 200 (OK)
+     and their content appears to be valid Firebase JavaScript.
+  4. CHECK CONSOLE FOR EARLIER ERRORS: Any errors from 'firebase-app-compat.js' or 'firebase-messaging-compat.js'
+     themselves will prevent them from working.
 */
-console.log('[WebPushPro Client v${SCRIPT_VERSION}] Initializing for ${domainName}...');
+console.log('[WebPushPro Client v${SCRIPT_VERSION}] Initializing script for ${domainName}...');
 
-(function() {
-  const firebaseConfig = ${JSON.stringify(config, null, 2)};
-  const VAPID_KEY = '${config.vapidKey || ""}';
-  const API_BASE_URL = '${apiBaseUrl}';
-  const CLIENT_APP_NAME = '${clientAppName}';
+// --- Configuration ---
+const firebaseConfig = ${JSON.stringify(config, null, 2)};
+console.log('[WebPushPro Client v${SCRIPT_VERSION}] Firebase Config for ${domainName}:', firebaseConfig);
 
-  let firebaseApp = null;
-  let messaging = null;
+const VAPID_KEY = '${config.vapidKey || ""}';
+console.log('[WebPushPro Client v${SCRIPT_VERSION}] VAPID Key for ${domainName} (first 10 chars):', VAPID_KEY ? VAPID_KEY.substring(0, 10) + '...' : 'NOT PROVIDED - ESSENTIAL FOR FCM TOKEN');
 
-  // 1. Initialize Firebase App
-  if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
+const API_BASE_URL = '${apiBaseUrl}';
+console.log('[WebPushPro Client v${SCRIPT_VERSION}] API Base URL:', API_BASE_URL);
+
+const CLIENT_APP_NAME = '${clientAppName}';
+
+// --- Firebase Initialization (Client) ---
+let firebaseApp = null;
+let messaging = null;
+
+if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
     const existingApp = firebase.apps.find(app => app.name === CLIENT_APP_NAME);
     if (existingApp) {
-      firebaseApp = existingApp;
+        firebaseApp = existingApp;
+        console.log('[WebPushPro Client v${SCRIPT_VERSION}] Using existing Firebase app instance:', CLIENT_APP_NAME);
     } else {
-      try {
-        firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
-        console.log('[WebPushPro Client] Firebase app initialized:', CLIENT_APP_NAME);
-      } catch (e) {
-        console.error('[WebPushPro Client] Error initializing Firebase app:', e);
-        return;
-      }
+        try {
+            firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
+            console.log('[WebPushPro Client v${SCRIPT_VERSION}] Firebase app instance initialized:', CLIENT_APP_NAME);
+        } catch (initError) {
+            console.error('[WebPushPro Client v${SCRIPT_VERSION}] Error initializing Firebase app (' + CLIENT_APP_NAME + '):', initError);
+        }
     }
-  } else {
-    console.error('[WebPushPro Client] Firebase core SDK (firebase-app-compat.js) not found. Ensure it is loaded before this script.');
+} else {
+    console.error('[WebPushPro Client v${SCRIPT_VERSION}] Firebase library not fully loaded (firebase or initializeApp is missing). Ensure firebase-app-compat.js is included on your page BEFORE this script.');
+}
+
+// --- Messaging Initialization ---
+if (firebaseApp) {
+    if (typeof firebase.messaging === 'function' && typeof firebase.messaging.isSupported === 'function') {
+        if (firebase.messaging.isSupported()) {
+            try {
+                messaging = firebase.messaging(firebaseApp);
+                console.log('[WebPushPro Client v${SCRIPT_VERSION}] Firebase Messaging service initialized for app:', CLIENT_APP_NAME, 'Messaging object:', messaging);
+            } catch (messagingError) {
+                console.error('[WebPushPro Client v${SCRIPT_VERSION}] Error initializing Firebase Messaging service:', messagingError);
+            }
+        } else {
+            console.warn('[WebPushPro Client v${SCRIPT_VERSION}] Firebase Messaging not supported in this browser for ${domainName}. (Requires HTTPS, not in iframe, etc.)');
+        }
+    } else {
+        console.error('[WebPushPro Client v${SCRIPT_VERSION}] Firebase Messaging library (firebase.messaging or .isSupported) not available. Ensure firebase-messaging-compat.js is included on your page BEFORE this script.');
+    }
+} else {
+    console.log('[WebPushPro Client v${SCRIPT_VERSION}] Firebase app not available, skipping Messaging initialization.');
+}
+
+// --- Subscription Logic ---
+function requestPermissionAndGetToken() {
+  if (!messaging) {
+    console.error('[WebPushPro Client v${SCRIPT_VERSION}] Messaging not available, cannot request permission or get token for ${domainName}.');
+    return;
+  }
+  if (!VAPID_KEY) {
+    console.error('[WebPushPro Client v${SCRIPT_VERSION}] VAPID_KEY is missing for ${domainName}. Cannot get FCM token.');
     return;
   }
 
-  // 2. Initialize Firebase Messaging
-  if (firebaseApp && typeof firebase.messaging === 'function' && typeof firebase.messaging.isSupported === 'function') {
-    if (firebase.messaging.isSupported()) {
-      try {
-        messaging = firebase.messaging(firebaseApp);
-        console.log('[WebPushPro Client] Firebase Messaging service initialized.');
-      } catch (e) {
-        console.error('[WebPushPro Client] Error initializing Firebase Messaging:', e);
-        return;
-      }
+  Notification.requestPermission().then((permission) => {
+    if (permission === 'granted') {
+      messaging.getToken({ vapidKey: VAPID_KEY })
+        .then((currentToken) => {
+          if (currentToken) {
+            console.log('[WebPushPro Client v${SCRIPT_VERSION}] FCM Token obtained for ${domainName}:', currentToken.substring(0, 20) + '...');
+            const subscriberData = { token: currentToken, domainName: '${domainName}', userAgent: navigator.userAgent };
+            fetch(API_BASE_URL + '/api/subscribe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(subscriberData)
+            })
+            .then(response => response.json().then(data => ({ ok: response.ok, data })))
+            .then(({ ok, data }) => {
+              if (ok && data.id) console.log('[WebPushPro Client v${SCRIPT_VERSION}] Subscription successful via API for ${domainName}. ID:', data.id);
+              else console.error('[WebPushPro Client v${SCRIPT_VERSION}] Subscription API error for ${domainName}. Response:', data);
+            })
+            .catch(err => console.error('[WebPushPro Client v${SCRIPT_VERSION}] Subscription API fetch error for ${domainName}:', err));
+          } else {
+            console.warn('[WebPushPro Client v${SCRIPT_VERSION}] No FCM registration token received for ${domainName}. Check VAPID key, SW registration, HTTPS.');
+          }
+        }).catch((err) => console.error('[WebPushPro Client v${SCRIPT_VERSION}] Error retrieving FCM token for ${domainName}:', err));
     } else {
-      console.warn('[WebPushPro Client] Firebase Messaging not supported in this browser.');
-      return;
+      console.warn('[WebPushPro Client v${SCRIPT_VERSION}] Notification permission denied for ${domainName}.');
     }
-  } else {
-    console.error('[WebPushPro Client] Firebase Messaging SDK (firebase-messaging-compat.js) not found or not supported. Ensure it is loaded before this script.');
-    return;
-  }
+  }).catch(err => console.error('[WebPushPro Client v${SCRIPT_VERSION}] Error requesting notification permission for ${domainName}:', err));
+}
 
-  // 3. Register Service Worker & Get Token
+// --- Service Worker Registration and Token Retrieval ---
+if (firebaseApp && messaging) {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/firebase-messaging-sw.js')
       .then(function(registration) {
-        console.log('[WebPushPro Client] Service Worker registered. Scope:', registration.scope);
+        console.log('[WebPushPro Client v${SCRIPT_VERSION}] SW registered for ${domainName}. Scope:', registration.scope);
         
-        if (typeof messaging.useServiceWorker !== 'function') {
-          console.error('[WebPushPro Client] messaging.useServiceWorker is not a function. This usually means firebase-messaging-compat.js did not load or execute correctly BEFORE this script.');
-          return;
-        }
-        messaging.useServiceWorker(registration);
-        console.log('[WebPushPro Client] Messaging will use service worker.');
+        // --- Enhanced Diagnostics for useServiceWorker ---
+        console.log('[WebPushPro Client v${SCRIPT_VERSION}] DIAGNOSTIC: About to check messaging.useServiceWorker.');
+        console.log('[WebPushPro Client v${SCRIPT_VERSION}] DIAGNOSTIC: Current messaging instance:', messaging);
+        if (messaging) {
+            console.log('[WebPushPro Client v${SCRIPT_VERSION}] DIAGNOSTIC: Keys in current messaging instance:', Object.keys(messaging));
+            let hasMethod = false;
+            try { // Iterate carefully as properties might not be own properties or enumerable in some JS engines for proxy objects
+                for (const key in messaging) {
+                    if (Object.prototype.hasOwnProperty.call(messaging, key) && key === 'useServiceWorker' && typeof messaging[key] === 'function') {
+                        hasMethod = true;
+                        break;
+                    }
+                }
+                 // Second pass if not found, as it might be on prototype
+                if (!hasMethod && 'useServiceWorker' in messaging && typeof messaging.useServiceWorker === 'function') {
+                    hasMethod = true;
+                }
 
-        return navigator.serviceWorker.ready;
-      })
-      .then(function(swReady) {
-        if (!swReady) { 
-          console.warn('[WebPushPro Client] Service worker not ready after registration.');
-          return;
+            } catch(e_iter) { console.warn('[WebPushPro Client v${SCRIPT_VERSION}] DIAGNOSTIC: Error iterating messaging keys:', e_iter); }
+            console.log(\`[WebPushPro Client v\${SCRIPT_VERSION}] DIAGNOSTIC: Does 'useServiceWorker' method exist and is a function on messaging instance (iterated)? \${hasMethod}\`);
+            console.log(\`[WebPushPro Client v\${SCRIPT_VERSION}] DIAGNOSTIC: typeof messaging.useServiceWorker: \${typeof messaging.useServiceWorker}\`);
+        } else {
+            console.warn(\`[WebPushPro Client v\${SCRIPT_VERSION}] DIAGNOSTIC: Messaging instance is null or undefined before checking useServiceWorker.\`);
         }
-        console.log('[WebPushPro Client] Service Worker ready.');
-        requestPermissionAndGetToken();
-      })
-      .catch(function(error) {
-        console.error('[WebPushPro Client] Service Worker registration failed:', error);
+
+        // Global Firebase messaging diagnostics
+        if (typeof firebase !== 'undefined' && typeof firebase.messaging === 'function') {
+            const globalMessagingFactory = firebase.messaging;
+            console.log(\`[WebPushPro Client v\${SCRIPT_VERSION}] DIAGNOSTIC: Global firebase.messaging (factory function):\`, globalMessagingFactory);
+            if (typeof globalMessagingFactory.isSupported === 'function') {
+                 console.log(\`[WebPushPro Client v\${SCRIPT_VERSION}] DIAGNOSTIC: Global firebase.messaging.isSupported exists.\`);
+            } else {
+                 console.warn(\`[WebPushPro Client v\${SCRIPT_VERSION}] DIAGNOSTIC: Global firebase.messaging.isSupported does NOT exist.\`);
+            }
+        } else {
+             console.warn(\`[WebPushPro Client v\${SCRIPT_VERSION}] DIAGNOSTIC: Global firebase or firebase.messaging (factory) not available for diagnostics.\`);
+        }
+        // --- End Enhanced Diagnostics ---
+
+        if (messaging && typeof messaging.useServiceWorker === 'function') {
+            messaging.useServiceWorker(registration);
+            console.log('[WebPushPro Client v${SCRIPT_VERSION}] Messaging using SW for ${domainName}.');
+            
+            navigator.serviceWorker.ready.then(function(swReady) {
+                console.log('[WebPushPro Client v${SCRIPT_VERSION}] SW is ready. Registration:', swReady);
+                requestPermissionAndGetToken();
+            }).catch(function(swReadyError){
+                console.error('[WebPushPro Client v${SCRIPT_VERSION}] SW .ready() promise rejected:', swReadyError);
+            });
+
+        } else {
+            console.error(\`[WebPushPro Client v\${SCRIPT_VERSION}] CRITICAL (useServiceWorker-check): 'messaging.useServiceWorker' is NOT a function. This is the primary failure point.
+    - Local 'messaging' object type: \${typeof messaging}
+    - Local 'messaging.useServiceWorker' type: \${messaging ? typeof messaging.useServiceWorker : 'messaging object is null/undefined'}
+    - This means firebase-messaging-compat.js did NOT correctly add 'useServiceWorker' to the Firebase Messaging service object.
+    - RE-VERIFY PREREQUISITES on your website (${domainName}):
+        1. NO CONSOLE ERRORS *BEFORE* THIS: Check for errors from 'firebase-app-compat.js' or 'firebase-messaging-compat.js' themselves.
+        2. SCRIPT TAGS: Ensure '<script src=".../firebase-app-compat.js"></script>' AND '<script src=".../firebase-messaging-compat.js"></script>' are in your HTML.
+        3. SCRIPT ORDER: They MUST appear *BEFORE* this WebPushPro script.
+        4. NO ASYNC/DEFER: Remove 'async' or 'defer' from these Firebase SDK script tags. Plain script tags are safest. (If they must be used, ensure this script is also comparably deferred *after* them).
+        5. NETWORK TAB: Confirm both Firebase SDKs download with HTTP 200 (OK) and have valid JS content (not an error page/empty).
+    - If all above are perfect, the issue is a deep environmental problem on your site/browser (e.g., other JS conflicts, browser extensions, network filtering) preventing 'firebase-messaging-compat.js' from functioning as expected.
+    - Failing 'messaging' object details:\`, messaging);
+            return;
+        }
+      }).catch(function(error) {
+        console.error('[WebPushPro Client v${SCRIPT_VERSION}] SW registration failed for ${domainName}:', error);
       });
   } else {
-    console.warn('[WebPushPro Client] Service Workers not supported in this browser.');
+    console.warn('[WebPushPro Client v${SCRIPT_VERSION}] Service workers not supported in this browser for ${domainName}.');
   }
-
-  function requestPermissionAndGetToken() {
-    if (!messaging || !VAPID_KEY) {
-      if (!VAPID_KEY) console.error('[WebPushPro Client] VAPID_KEY is missing.');
-      if (!messaging) console.error('[WebPushPro Client] Messaging service not available.');
-      return;
-    }
-
-    Notification.requestPermission().then((permission) => {
-      console.log('[WebPushPro Client] Notification permission status:', permission);
-      if (permission === 'granted') {
-        messaging.getToken({ vapidKey: VAPID_KEY })
-          .then((currentToken) => {
-            if (currentToken) {
-              console.log('[WebPushPro Client] FCM Token obtained (first 20 chars):', currentToken.substring(0,20) + '...');
-              sendTokenToServer(currentToken);
-            } else {
-              console.warn('[WebPushPro Client] No FCM token received. Check VAPID key and SW setup.');
-            }
-          }).catch((err) => {
-            console.error('[WebPushPro Client] Error retrieving FCM token:', err);
-          });
-      }
-    }).catch(err => {
-      console.error('[WebPushPro Client] Error requesting notification permission:', err);
-    });
-  }
-
-  function sendTokenToServer(token) {
-    const subscriberData = {
-      token: token,
-      domainName: '${domainName}',
-      userAgent: navigator.userAgent
-    };
-    fetch(API_BASE_URL + '/api/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(subscriberData)
-    })
-    .then(response => response.json().then(data => ({ ok: response.ok, status: response.status, data })))
-    .then(({ ok, status, data }) => {
-      if (ok) {
-        console.log('[WebPushPro Client] Subscription successful via API. ID:', data.id);
-      } else {
-        console.error('[WebPushPro Client] Subscription API error. Status:', status, 'Response:', data);
-      }
-    })
-    .catch(err => {
-      console.error('[WebPushPro Client] Subscription API fetch error:', err);
-    });
-  }
-})();
+} else {
+  console.warn('[WebPushPro Client v${SCRIPT_VERSION}] Firebase app or messaging service not initialized for ${domainName}. SW setup skipped.');
+}
 `;
 
   const serviceWorkerScript = `
@@ -197,41 +245,40 @@ console.log('[WebPushPro Client v${SCRIPT_VERSION}] Initializing for ${domainNam
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
 
-console.log('[WebPushPro SW v${SCRIPT_VERSION}] firebase-messaging-sw.js executing...');
+console.log('[WebPushPro SW v${SCRIPT_VERSION}] firebase-messaging-sw.js executing for ${domainName}...');
 
 const firebaseConfigSW = ${JSON.stringify(config, null, 2)};
-const SW_APP_NAME = '${swAppName}';
+const SW_APP_NAME_INTERNAL = '${swAppName}'; // Renamed to avoid conflict if client script uses same var name in global scope
 
 let firebaseAppSW = null;
-let messagingSW = null;
 
-// 1. Initialize Firebase App in Service Worker
+// Initialize Firebase App in Service Worker
 if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
-  const existingSwApp = firebase.apps.find(app => app.name === SW_APP_NAME);
+  const existingSwApp = firebase.apps.find(app => app.name === SW_APP_NAME_INTERNAL);
   if (existingSwApp) {
       firebaseAppSW = existingSwApp;
+      console.log('[WebPushPro SW v${SCRIPT_VERSION}] Using existing Firebase app in SW:', SW_APP_NAME_INTERNAL);
   } else {
       try {
-        firebaseAppSW = firebase.initializeApp(firebaseConfigSW, SW_APP_NAME);
-        console.log('[WebPushPro SW] Firebase app initialized in SW:', SW_APP_NAME);
+        firebaseAppSW = firebase.initializeApp(firebaseConfigSW, SW_APP_NAME_INTERNAL);
+        console.log('[WebPushPro SW v${SCRIPT_VERSION}] Firebase app initialized in SW:', SW_APP_NAME_INTERNAL);
       } catch (e) {
-        console.error('[WebPushPro SW] Error initializing Firebase app in SW:', e);
+        console.error('[WebPushPro SW v${SCRIPT_VERSION}] Error initializing Firebase app in SW:', e);
       }
   }
 } else {
-   console.error('[WebPushPro SW] Firebase core SDK (firebase-app-compat.js) not imported or available in SW.');
+   console.error('[WebPushPro SW v${SCRIPT_VERSION}] Firebase core SDK (firebase-app-compat.js) not imported or available in SW.');
 }
 
-// 2. Initialize Firebase Messaging in Service Worker
+// Initialize Firebase Messaging in Service Worker
 if (firebaseAppSW && typeof firebase.messaging === 'function') {
   try {
-    messagingSW = firebase.messaging(firebaseAppSW);
-    console.log('[WebPushPro SW] Firebase Messaging service initialized in SW.');
+    const messagingSW = firebase.messaging(firebaseAppSW);
+    console.log('[WebPushPro SW v${SCRIPT_VERSION}] Firebase Messaging service initialized in SW for app:', SW_APP_NAME_INTERNAL);
 
     // Optional: Handle background messages here
     // messagingSW.onBackgroundMessage(function(payload) {
-    //   console.log('[WebPushPro SW] Received background message:', payload);
-    //   // Customize notification display here if needed
+    //   console.log('[WebPushPro SW v${SCRIPT_VERSION}] Received background message:', payload);
     //   const notificationTitle = payload.notification?.title || 'New Message';
     //   const notificationOptions = {
     //     body: payload.notification?.body || 'You have a new message.',
@@ -239,16 +286,14 @@ if (firebaseAppSW && typeof firebase.messaging === 'function') {
     //   };
     //   return self.registration.showNotification(notificationTitle, notificationOptions);
     // });
-    // console.log('[WebPushPro SW] Background message handler ready (if uncommented).');
-
   } catch (e) {
-    console.error('[WebPushPro SW] Error initializing Firebase Messaging in SW:', e);
+    console.error('[WebPushPro SW v${SCRIPT_VERSION}] Error initializing Firebase Messaging in SW:', e);
   }
 } else {
-  console.error('[WebPushPro SW] Firebase Messaging SDK (firebase-messaging-compat.js) not imported or Firebase App SW not available.');
+  console.error('[WebPushPro SW v${SCRIPT_VERSION}] Firebase Messaging SDK or Firebase App SW not available for SW Messaging init.');
 }
 
-console.log('[WebPushPro SW] Setup attempt complete.');
+console.log('[WebPushPro SW v${SCRIPT_VERSION}] SW setup attempt complete for ${domainName}.');
 `;
 
   return { clientScript, serviceWorkerScript };
@@ -364,9 +409,11 @@ export default function DomainsPage() {
     setVerifyingDomainId(domainId);
     const newVerificationTime = Timestamp.fromDate(new Date());
     try {
+      // Simulate verification - in a real app, you'd query DNS or a verification endpoint
       console.log(`Simulating verification for domain ${domainToVerify.name} (ID: ${domainId}) with token ${token}`);
+      // For testing, make it take a moment and then succeed/fail randomly or based on a condition
       await new Promise(resolve => setTimeout(resolve, 1500)); 
-      const isActuallyVerified = true; 
+      const isActuallyVerified = true; // Replace with actual verification logic
 
       const domainRef = doc(db, "domains", domainId);
 
@@ -395,11 +442,12 @@ export default function DomainsPage() {
       }
     } catch (error) {
       console.error("Error verifying domain: ", error);
+      // Attempt to update status to error even if verification logic itself threw an error
       const domainRef = doc(db, "domains", domainId);
       try {
         await updateDoc(domainRef, {
           lastVerificationAttempt: newVerificationTime,
-          status: 'error', 
+          status: 'error', // Ensure status reflects an attempt was made and failed
         });
         setDomains(prevDomains =>
           prevDomains.map(d =>
@@ -594,7 +642,7 @@ export default function DomainsPage() {
                         <DialogHeader>
                           <DialogTitle>Integration Scripts for {selectedDomainNameForScript}</DialogTitle>
                           <DialogDescription>
-                            Use these scripts to integrate WebPush Pro with your website.
+                            Use these scripts to integrate WebPush Pro with your website. Version: {SCRIPT_VERSION}
                           </DialogDescription>
                         </DialogHeader>
                         
@@ -659,3 +707,4 @@ export default function DomainsPage() {
   );
 }
 
+    
