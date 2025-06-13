@@ -16,7 +16,7 @@ import { generateNotificationContent, GenerateNotificationContentInput, Generate
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { db } from '@/lib/firebase';
-import { collection, addDoc, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, getDocs, query, where, Timestamp, doc, updateDoc } from 'firebase/firestore';
 import type { Domain, Campaign } from '@/lib/types';
 
 interface NotificationFormData {
@@ -40,7 +40,6 @@ export default function NewCampaignPage() {
   const [pageContent, setPageContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSending, setIsSending] = useState(false); // For the API call to send
   const [activeTab, setActiveTab] = useState("ai-composer");
   const { toast } = useToast();
   const [verifiedDomains, setVerifiedDomains] = useState<Domain[]>([]);
@@ -126,58 +125,73 @@ export default function NewCampaignPage() {
         targetUrl: formData.targetUrl || '',
         domainId: selectedDomain.id,
         domainName: selectedDomain.name,
-        sentAt: new Date().toISOString(), // Will be overwritten by server timestamp on send if we use that
-        status: 'pending_send', // Initial status before triggering send
+        sentAt: new Date().toISOString(), 
+        status: 'pending_send', 
         recipients: 0, 
         sentStats: { successCount: 0, failureCount: 0 },
       };
       
       const docRef = await addDoc(collection(db, 'campaigns'), campaignData);
       campaignDocId = docRef.id;
-      toast({ title: "Campaign Saved!", description: `Campaign "${formData.title}" created. Triggering send...`, variant: "default" });
+      toast({ 
+        title: "Campaign Saved!", 
+        description: `Campaign "${formData.title}" queued for sending. Processing in background.`, 
+        variant: "default" 
+      });
       setFormData(initialFormData); 
       setPageContent('');
 
-      // Now trigger the actual sending via API
-      setIsSending(true);
-      const sendResponse = await fetch('/api/campaigns/send', {
+      // Trigger the sending API in a "fire-and-forget" manner
+      fetch('/api/campaigns/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ campaignId: campaignDocId }),
-      });
-
-      const sendResult = await sendResponse.json();
-
-      if (sendResponse.ok) {
+      })
+      .then(async sendResponse => {
+        if (!sendResponse.ok) {
+          const sendResult = await sendResponse.json().catch(() => ({error: 'Failed to trigger campaign send, unknown API error.'}));
+          // Log error, maybe update campaign status to 'failed_to_send_trigger' from client (though ideally server does this)
+          console.error("Error triggering campaign send API:", sendResult.error || sendResponse.statusText);
+          toast({ 
+            title: "Send Trigger Failed", 
+            description: `Could not initiate sending for campaign ${campaignDocId}. Error: ${sendResult.error || 'Server error'}`, 
+            variant: "destructive" 
+          });
+          // Optionally update campaign status here if API call fails to even start
+           try {
+              const campaignRef = doc(db, 'campaigns', campaignDocId);
+              await updateDoc(campaignRef, { status: 'failed_to_send_trigger' });
+           } catch (updateError) {
+              console.error("Failed to update campaign status to failed_to_send_trigger:", updateError);
+           }
+        }
+        // Success of triggering the API doesn't mean success of sending all messages.
+        // The backend will update status. Client doesn't need to do much more here.
+      })
+      .catch(error => {
+        console.error("Fetch error for /api/campaigns/send:", error);
         toast({ 
-          title: "Campaign Processing Initiated", 
-          description: `Sending to ${sendResult.totalSubscribers || 0} subscribers. Success: ${sendResult.successCount || 0}, Failed: ${sendResult.failureCount || 0}. Check campaign list for final status.`,
-          variant: "default",
-          duration: 7000,
+          title: "Network Error", 
+          description: `Could not connect to campaign sending API for ${campaignDocId}.`, 
+          variant: "destructive" 
         });
-      } else {
-        throw new Error(sendResult.error || 'Failed to trigger campaign send API.');
-      }
+         try {
+            const campaignRef = doc(db, 'campaigns', campaignDocId);
+            updateDoc(campaignRef, { status: 'failed_to_send_trigger' });
+         } catch (updateError) {
+            console.error("Failed to update campaign status to failed_to_send_trigger after network error:", updateError);
+         }
+      });
 
     } catch (error: any) {
-      console.error("Error creating/sending campaign: ", error);
+      console.error("Error creating campaign: ", error);
       toast({ 
-        title: "Campaign Error", 
-        description: `Failed: ${error.message || 'Could not save or send campaign.'}`, 
+        title: "Campaign Creation Error", 
+        description: `Failed: ${error.message || 'Could not save campaign.'}`, 
         variant: "destructive" 
       });
-      // If campaign was created but sending failed, update its status
-      if (campaignDocId) {
-        try {
-            const campaignRef = (await import('firebase/firestore')).doc(db, 'campaigns', campaignDocId);
-            await (await import('firebase/firestore')).updateDoc(campaignRef, { status: 'failed_to_send_trigger' });
-        } catch (updateError) {
-            console.error("Failed to update campaign status to error:", updateError);
-        }
-      }
     } finally {
       setIsSubmitting(false);
-      setIsSending(false);
     }
   };
 
@@ -186,7 +200,7 @@ export default function NewCampaignPage() {
   useEffect(() => {
     if (formData.imageUrl && formData.imageUrl.match(/\.(jpeg|jpg|gif|png)$/i)) {
       setPreviewImageUrl(formData.imageUrl);
-    } else if (formData.imageUrl) { // If it's a URL but not a direct image link, use placeholder
+    } else if (formData.imageUrl) { 
       setPreviewImageUrl(`https://placehold.co/300x200.png`);
     } else {
       setPreviewImageUrl(null);
@@ -227,7 +241,7 @@ export default function NewCampaignPage() {
                       className="text-base"
                     />
                   </div>
-                  <Button type="button" onClick={handleGenerateWithAI} disabled={isGenerating || isSubmitting || isSending || !pageContent.trim()} className="w-full sm:w-auto">
+                  <Button type="button" onClick={handleGenerateWithAI} disabled={isGenerating || isSubmitting || !pageContent.trim()} className="w-full sm:w-auto">
                     {isGenerating ? (
                       <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
                     ) : (
@@ -260,7 +274,7 @@ export default function NewCampaignPage() {
                ) : (
                 <div>
                     <Label htmlFor="domainId">Target Domain</Label>
-                    <Select value={formData.domainId} onValueChange={handleDomainChange} name="domainId" required disabled={isSubmitting || isSending}>
+                    <Select value={formData.domainId} onValueChange={handleDomainChange} name="domainId" required disabled={isSubmitting}>
                       <SelectTrigger className="w-full text-base">
                         <SelectValue placeholder="Select a verified domain" />
                       </SelectTrigger>
@@ -286,27 +300,27 @@ export default function NewCampaignPage() {
                 <>
                   <div>
                     <Label htmlFor="title">Title</Label>
-                    <Input id="title" name="title" value={formData.title} onChange={handleInputChange} placeholder="Notification Title" required className="text-base" disabled={isSubmitting || isSending}/>
+                    <Input id="title" name="title" value={formData.title} onChange={handleInputChange} placeholder="Notification Title" required className="text-base" disabled={isSubmitting}/>
                   </div>
                   <div>
                     <Label htmlFor="body">Body</Label>
-                    <Textarea id="body" name="body" value={formData.body} onChange={handleInputChange} placeholder="Notification body content..." required rows={3} className="text-base" disabled={isSubmitting || isSending}/>
+                    <Textarea id="body" name="body" value={formData.body} onChange={handleInputChange} placeholder="Notification body content..." required rows={3} className="text-base" disabled={isSubmitting}/>
                   </div>
                   <div>
                     <Label htmlFor="imageUrl">Image URL (Optional)</Label>
-                    <Input id="imageUrl" name="imageUrl" type="url" value={formData.imageUrl} onChange={handleInputChange} placeholder="https://example.com/image.png" className="text-base" disabled={isSubmitting || isSending}/>
+                    <Input id="imageUrl" name="imageUrl" type="url" value={formData.imageUrl} onChange={handleInputChange} placeholder="https://example.com/image.png" className="text-base" disabled={isSubmitting}/>
                   </div>
                 </>
               )}
               <div>
                 <Label htmlFor="targetUrl">Target URL (Optional)</Label>
-                <Input id="targetUrl" name="targetUrl" type="url" value={formData.targetUrl} onChange={handleInputChange} placeholder="https://example.com/target-page" className="text-base" disabled={isSubmitting || isSending}/>
+                <Input id="targetUrl" name="targetUrl" type="url" value={formData.targetUrl} onChange={handleInputChange} placeholder="https://example.com/target-page" className="text-base" disabled={isSubmitting}/>
               </div>
             </CardContent>
             <CardFooter>
-              <Button type="submit" className="w-full sm:w-auto" disabled={isGenerating || isSubmitting || isSending || isLoadingDomains || !formData.domainId}>
-                {isSubmitting || isSending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                {isSubmitting ? "Saving..." : (isSending ? "Sending..." : "Save & Send Notification")}
+              <Button type="submit" className="w-full sm:w-auto" disabled={isGenerating || isSubmitting || isLoadingDomains || !formData.domainId}>
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                {isSubmitting ? "Saving & Queuing..." : "Save & Queue Notification"}
               </Button>
             </CardFooter>
           </Card>

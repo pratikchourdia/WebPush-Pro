@@ -274,10 +274,9 @@ export default function CampaignsPage() {
                             <div className="cursor-default">{getStatusBadge(campaign)}</div>
                         </TooltipTrigger>
                         <TooltipContent><p>
-                            {/* This is a simplified tooltip; getStatusBadge already provides context in text. 
-                                For more detailed tooltips, you'd extract the logic or pass more data. */}
                             Status: {campaign.status.replace(/_/g, ' ')}
                             {campaign.status === 'processed' && campaign.sentStats && ` (Success: ${campaign.sentStats.successCount}, Failed: ${campaign.sentStats.failureCount})`}
+                            {campaign.status === 'sending' && ` (Targeting ${campaign.recipients || 0} subscribers)`}
                         </p></TooltipContent>
                     </Tooltip>
                   </TableCell>
@@ -288,8 +287,8 @@ export default function CampaignsPage() {
                                 <TooltipTrigger asChild>
                                 <span className="text-xs cursor-default">
                                     {campaign.sentStats ? 
-                                        `${campaign.sentStats.successCount || 0} sent / ${campaign.sentStats.failureCount || 0} failed (of ${campaign.recipients || 0})` 
-                                        : (campaign.recipients > 0 ? `${campaign.recipients.toLocaleString()} targeted` : '0 targeted')}
+                                        `${campaign.sentStats.successCount || 0} sent / ${campaign.sentStats.failureCount || 0} (of ${campaign.recipients || 0})` 
+                                        : (campaign.recipients > 0 ? `${campaign.recipients.toLocaleString()} targeted` : (campaign.status === 'sending' ? 'Calculating...' : '0 targeted'))}
                                 </span>
                                 </TooltipTrigger>
                                 <TooltipContent>
@@ -314,14 +313,13 @@ export default function CampaignsPage() {
                   <TableCell>
                      <Tooltip>
                         <TooltipTrigger asChild>
-                            <span className="text-xs cursor-default">{campaign.processedAt ? new Date(campaign.processedAt).toLocaleString() : (campaign.status.startsWith("pending") || campaign.status === "sending" ? "Processing..." : "N/A")}</span>
+                            <span className="text-xs cursor-default">{campaign.processedAt ? new Date(campaign.processedAt).toLocaleString() : (campaign.status === "pending_send" || campaign.status === "sending" ? "Processing..." : "N/A")}</span>
                         </TooltipTrigger>
                         <TooltipContent><p>Processed: {campaign.processedAt ? new Date(campaign.processedAt).toLocaleString() : 'Not yet processed'}</p></TooltipContent>
                     </Tooltip>
                   </TableCell>
                   <TableCell className="text-right">
-                    {/* View/Edit is disabled for now. Render a disabled button. */}
-                    <Button variant="outline" size="sm" disabled={true}>
+                     <Button variant="outline" size="sm" disabled={true}>
                        <Eye className="mr-2 h-4 w-4" /> View
                     </Button>
                   </TableCell>
