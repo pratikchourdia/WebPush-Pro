@@ -33,7 +33,9 @@ export interface Campaign {
   body: string;
   imageUrl?: string;
   targetUrl?: string;
-  sentAt: string;
-  status: 'sent' | 'draft' | 'failed';
-  recipients: number;
+  domainId: string; // ID of the domain this campaign targets
+  domainName: string; // Name of the domain for display
+  sentAt: string; // ISO date string
+  status: 'sent' | 'draft' | 'failed'; // 'draft' and 'failed' could be future features
+  recipients: number; // Placeholder for now, actual count would require backend logic
 }

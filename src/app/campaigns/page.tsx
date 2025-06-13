@@ -1,11 +1,12 @@
+
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { Eye, PlusCircle, AlertCircle, CheckCircle2, ListFilter, Send } from "lucide-react";
+import { Eye, PlusCircle, AlertCircle, CheckCircle2, ListFilter, Send, Loader2, Globe } from "lucide-react";
 import type { Campaign } from '@/lib/types';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { Badge } from '@/components/ui/badge';
@@ -16,17 +17,55 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-
-const initialCampaigns: Campaign[] = [];
+} from "@/components/ui/dropdown-menu";
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { useToast } from '@/hooks/use-toast';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function CampaignsPage() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
   const [statusFilter, setStatusFilter] = React.useState<Record<Campaign['status'], boolean>>({
     sent: true,
     draft: true,
     failed: true,
   });
+
+  useEffect(() => {
+    const fetchCampaigns = async () => {
+      setIsLoading(true);
+      try {
+        const campaignsCollection = collection(db, 'campaigns');
+        const q = query(campaignsCollection, orderBy('sentAt', 'desc'));
+        const querySnapshot = await getDocs(q);
+        const campaignsData = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          // Ensure sentAt is handled correctly if it's a Firestore Timestamp
+          let sentAtISO = data.sentAt;
+          if (data.sentAt instanceof Timestamp) {
+            sentAtISO = data.sentAt.toDate().toISOString();
+          } else if (typeof data.sentAt?.seconds === 'number') { // Handle plain object Timestamps
+             sentAtISO = new Timestamp(data.sentAt.seconds, data.sentAt.nanoseconds).toDate().toISOString();
+          }
+
+          return {
+            id: doc.id,
+            ...data,
+            sentAt: sentAtISO, // Ensure it's a string for consistency with type
+          } as Campaign;
+        });
+        setCampaigns(campaignsData);
+      } catch (error) {
+        console.error("Error fetching campaigns: ", error);
+        toast({ title: "Error", description: "Could not fetch campaigns from database.", variant: "destructive" });
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    fetchCampaigns();
+  }, [toast]);
 
   const toggleStatusFilter = (status: Campaign['status']) => {
     setStatusFilter(prev => ({ ...prev, [status]: !prev[status] }));
@@ -51,6 +90,42 @@ export default function CampaignsPage() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <div className="container mx-auto">
+        <PageHeader
+          title="Campaigns"
+          description="View your past and draft web push notification campaigns."
+          actions={
+            <Link href="/campaigns/new" passHref>
+              <Button>
+                <PlusCircle className="mr-2 h-5 w-5" /> Create New Campaign
+              </Button>
+            </Link>
+          }
+        />
+        <Card className="shadow-lg rounded-lg">
+          <CardHeader>
+             <div className="flex justify-between items-center">
+                <Skeleton className="h-8 w-1/4" />
+                <Skeleton className="h-9 w-32" />
+             </div>
+          </CardHeader>
+          <CardContent>
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="flex items-center space-x-4 p-4 border-b">
+                <Skeleton className="h-6 flex-grow" />
+                <Skeleton className="h-6 w-24" />
+                <Skeleton className="h-6 w-24" />
+                 <Skeleton className="h-6 w-20" />
+                <Skeleton className="h-8 w-28" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="container mx-auto">
@@ -69,7 +144,7 @@ export default function CampaignsPage() {
       <Card className="shadow-lg rounded-lg">
         <CardHeader>
           <div className="flex justify-between items-center">
-            <CardTitle>Campaign History</CardTitle>
+            <CardTitle>Campaign History ({filteredCampaigns.length})</CardTitle>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" size="sm">
@@ -98,14 +173,19 @@ export default function CampaignsPage() {
           {filteredCampaigns.length === 0 ? (
              <div className="text-center py-10 text-muted-foreground">
                 <Send className="mx-auto h-12 w-12 mb-4" />
-                <p className="text-xl font-semibold">No campaigns match your filters.</p>
-                <p>Try adjusting your filters or create a new campaign.</p>
+                <p className="text-xl font-semibold">
+                  {campaigns.length === 0 ? "No campaigns created yet." : "No campaigns match your filters."}
+                </p>
+                <p>
+                  {campaigns.length === 0 ? "Create your first campaign to get started!" : "Try adjusting your filters or create a new campaign."}
+                </p>
              </div>
           ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Title</TableHead>
+                <TableHead>Domain</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Sent At</TableHead>
                 <TableHead>Recipients</TableHead>
@@ -116,12 +196,18 @@ export default function CampaignsPage() {
               {filteredCampaigns.map((campaign) => (
                 <TableRow key={campaign.id}>
                   <TableCell className="font-medium max-w-xs truncate" title={campaign.title}>{campaign.title}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Globe className="h-3 w-3" />
+                        {campaign.domainName}
+                    </div>
+                  </TableCell>
                   <TableCell>{getStatusBadge(campaign.status)}</TableCell>
-                  <TableCell>{campaign.status !== 'draft' ? new Date(campaign.sentAt).toLocaleString() : 'N/A'}</TableCell>
-                  <TableCell>{campaign.recipients > 0 ? campaign.recipients.toLocaleString() : 'N/A'}</TableCell>
+                  <TableCell>{campaign.status !== 'draft' && campaign.sentAt ? new Date(campaign.sentAt).toLocaleString() : 'N/A'}</TableCell>
+                  <TableCell>{campaign.recipients > 0 ? campaign.recipients.toLocaleString() : '0'}</TableCell>
                   <TableCell className="text-right">
-                    <Button variant="outline" size="sm" asChild>
-                      <Link href={`/campaigns/${campaign.id}`}> {/* Placeholder for view/edit campaign details */}
+                    <Button variant="outline" size="sm" asChild disabled> {/* View/Edit disabled for now */}
+                      <Link href={`/campaigns/${campaign.id}`}>
                         <Eye className="mr-2 h-4 w-4" /> View/Edit
                       </Link>
                     </Button>

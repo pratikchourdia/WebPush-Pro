@@ -1,3 +1,4 @@
+
 "use client";
 
 import React, { useState, useEffect } from 'react';
@@ -7,18 +8,23 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sparkles, Edit3, Send, Eye, Image as ImageIcon } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Sparkles, Edit3, Send, Eye, Image as ImageIcon, Globe, Loader2 } from "lucide-react";
 import Image from 'next/image';
 import { PageHeader } from '@/components/shared/PageHeader';
 import { generateNotificationContent, GenerateNotificationContentInput, GenerateNotificationContentOutput } from '@/ai/flows/generate-notification-content';
 import { useToast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
+import { db } from '@/lib/firebase';
+import { collection, addDoc, getDocs, query, where, Timestamp } from 'firebase/firestore';
+import type { Domain, Campaign } from '@/lib/types';
 
 interface NotificationFormData {
   title: string;
   body: string;
   imageUrl?: string;
   targetUrl?: string;
+  domainId: string;
 }
 
 const initialFormData: NotificationFormData = {
@@ -26,18 +32,45 @@ const initialFormData: NotificationFormData = {
   body: '',
   imageUrl: '',
   targetUrl: '',
+  domainId: '',
 };
 
 export default function NewCampaignPage() {
   const [formData, setFormData] = useState<NotificationFormData>(initialFormData);
   const [pageContent, setPageContent] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState("ai-composer");
   const { toast } = useToast();
+  const [verifiedDomains, setVerifiedDomains] = useState<Domain[]>([]);
+  const [isLoadingDomains, setIsLoadingDomains] = useState(true);
+
+  useEffect(() => {
+    const fetchVerifiedDomains = async () => {
+      setIsLoadingDomains(true);
+      try {
+        const domainsCollection = collection(db, 'domains');
+        const q = query(domainsCollection, where('status', '==', 'verified'));
+        const querySnapshot = await getDocs(q);
+        const domainsData = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Domain));
+        setVerifiedDomains(domainsData);
+      } catch (error) {
+        console.error("Error fetching verified domains: ", error);
+        toast({ title: "Error", description: "Could not fetch verified domains.", variant: "destructive" });
+      } finally {
+        setIsLoadingDomains(false);
+      }
+    };
+    fetchVerifiedDomains();
+  }, [toast]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleDomainChange = (value: string) => {
+    setFormData(prev => ({ ...prev, domainId: value }));
   };
 
   const handleGenerateWithAI = async () => {
@@ -53,7 +86,7 @@ export default function NewCampaignPage() {
         ...prev,
         title: result.title,
         body: result.body,
-        imageUrl: result.imageUrl || prev.imageUrl, // Keep existing image if AI doesn't provide one
+        imageUrl: result.imageUrl || prev.imageUrl,
       }));
       toast({ title: "AI Generation Successful", description: "Notification content has been generated." });
     } catch (error) {
@@ -64,13 +97,48 @@ export default function NewCampaignPage() {
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock sending notification
-    console.log("Sending notification:", formData);
-    toast({ title: "Campaign Sent (Mock)", description: `Title: ${formData.title}` });
-    setFormData(initialFormData); // Reset form
-    setPageContent('');
+    if (!formData.domainId) {
+      toast({ title: "Error", description: "Please select a target domain for the campaign.", variant: "destructive" });
+      return;
+    }
+    if (!formData.title.trim() || !formData.body.trim()) {
+      toast({ title: "Error", description: "Title and body cannot be empty.", variant: "destructive" });
+      return;
+    }
+
+    setIsSubmitting(true);
+    const selectedDomain = verifiedDomains.find(d => d.id === formData.domainId);
+    if (!selectedDomain) {
+      toast({ title: "Error", description: "Selected domain not found.", variant: "destructive" });
+      setIsSubmitting(false);
+      return;
+    }
+
+    try {
+      const campaignData: Omit<Campaign, 'id'> = {
+        title: formData.title,
+        body: formData.body,
+        imageUrl: formData.imageUrl || '',
+        targetUrl: formData.targetUrl || '',
+        domainId: selectedDomain.id,
+        domainName: selectedDomain.name,
+        sentAt: new Date().toISOString(),
+        status: 'sent',
+        recipients: 0, // Placeholder - actual recipient count would be complex
+      };
+      
+      const docRef = await addDoc(collection(db, 'campaigns'), campaignData);
+      toast({ title: "Campaign Sent!", description: `Campaign "${formData.title}" has been successfully created with ID: ${docRef.id}.` });
+      setFormData(initialFormData); // Reset form
+      setPageContent('');
+    } catch (error) {
+      console.error("Error sending campaign: ", error);
+      toast({ title: "Error Sending Campaign", description: "Could not save campaign to database.", variant: "destructive" });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
@@ -78,7 +146,7 @@ export default function NewCampaignPage() {
   useEffect(() => {
     if (formData.imageUrl && formData.imageUrl.match(/\.(jpeg|jpg|gif|png)$/i)) {
       setPreviewImageUrl(formData.imageUrl);
-    } else if (formData.imageUrl) { // If it's a placeholder or invalid, try to use placehold.co
+    } else if (formData.imageUrl) {
       setPreviewImageUrl(`https://placehold.co/300x200.png`);
     } else {
       setPreviewImageUrl(null);
@@ -90,7 +158,7 @@ export default function NewCampaignPage() {
     <div className="container mx-auto">
       <PageHeader
         title="Create New Campaign"
-        description="Compose and send a new web push notification to your subscribers."
+        description="Compose and send a new web push notification to subscribers of a selected domain."
       />
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -121,13 +189,9 @@ export default function NewCampaignPage() {
                   </div>
                   <Button type="button" onClick={handleGenerateWithAI} disabled={isGenerating || !pageContent.trim()} className="w-full sm:w-auto">
                     {isGenerating ? (
-                      <>
-                        <Sparkles className="mr-2 h-4 w-4 animate-spin" /> Generating...
-                      </>
+                      <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Generating...</>
                     ) : (
-                      <>
-                        <Sparkles className="mr-2 h-4 w-4" /> Generate with AI
-                      </>
+                      <><Sparkles className="mr-2 h-4 w-4" /> Generate with AI</>
                     )}
                   </Button>
                 </CardContent>
@@ -140,7 +204,8 @@ export default function NewCampaignPage() {
                   <CardDescription>Manually craft your notification content.</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Form fields will be outside tabs but content might be cleared/set by AI */}
+                  {/* Content for manual composer might be just using the fields below */}
+                  <p className="text-sm text-muted-foreground">Use the "Notification Details" section below to compose your message manually.</p>
                 </CardContent>
               </Card>
             </TabsContent>
@@ -151,6 +216,27 @@ export default function NewCampaignPage() {
               <CardTitle>Notification Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+               {isLoadingDomains ? (
+                 <div><Label>Target Domain</Label><Skeleton className="h-10 w-full" /></div>
+               ) : (
+                <div>
+                    <Label htmlFor="domainId">Target Domain</Label>
+                    <Select value={formData.domainId} onValueChange={handleDomainChange} name="domainId" required>
+                      <SelectTrigger className="w-full text-base">
+                        <SelectValue placeholder="Select a verified domain" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {verifiedDomains.length === 0 && <SelectItem value="no-domains" disabled>No verified domains found</SelectItem>}
+                        {verifiedDomains.map(domain => (
+                          <SelectItem key={domain.id} value={domain.id} className="text-base">
+                            {domain.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+               )}
+
                {isGenerating && activeTab === 'ai-composer' ? (
                 <>
                   <div><Label>Title</Label><Skeleton className="h-10 w-full" /></div>
@@ -179,18 +265,19 @@ export default function NewCampaignPage() {
               </div>
             </CardContent>
             <CardFooter>
-              <Button type="submit" className="w-full sm:w-auto" disabled={isGenerating}>
-                <Send className="mr-2 h-4 w-4" /> Send Notification
+              <Button type="submit" className="w-full sm:w-auto" disabled={isGenerating || isSubmitting || isLoadingDomains || !formData.domainId}>
+                {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                {isSubmitting ? "Sending..." : "Send Notification"}
               </Button>
             </CardFooter>
           </Card>
         </form>
 
         <div className="md:col-span-1 space-y-6">
-          <Card className="shadow-lg rounded-lg sticky top-24"> {/* Sticky preview */}
+          <Card className="shadow-lg rounded-lg sticky top-24">
             <CardHeader>
               <CardTitle className="flex items-center"><Eye className="mr-2 h-5 w-5" /> Notification Preview</CardTitle>
-              <CardDescription>This is how your notification might look on a device.</CardDescription>
+              <CardDescription>This is how your notification might look on a device for domain: {verifiedDomains.find(d => d.id === formData.domainId)?.name || "N/A"}.</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="bg-muted p-4 rounded-lg shadow-inner min-h-[150px]">
@@ -206,8 +293,8 @@ export default function NewCampaignPage() {
                         onError={() => setPreviewImageUrl('https://placehold.co/64x64.png?text=Error')}
                       />
                   ) : (
-                    <div className="w-16 h-16 bg-gray-300 rounded-md flex items-center justify-center">
-                      <ImageIcon className="h-8 w-8 text-gray-500" />
+                    <div className="w-16 h-16 bg-muted/80 rounded-md flex items-center justify-center">
+                      <ImageIcon className="h-8 w-8 text-muted-foreground" />
                     </div>
                   )}
                   <div className="flex-1">
