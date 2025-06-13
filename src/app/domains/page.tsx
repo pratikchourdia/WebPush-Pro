@@ -33,7 +33,7 @@ interface GeneratedScripts {
 }
 
 // Updated Script Version
-const SCRIPT_VERSION = "1.8.1"; // Keep this version as the core logic change was for diagnostics
+const SCRIPT_VERSION = "1.8.2"; 
 
 function generateFirebaseScripts(config: FirebaseConfig, domainName: string): GeneratedScripts {
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'YOUR_WEBPUSH_PRO_APP_URL';
@@ -50,6 +50,7 @@ function generateFirebaseScripts(config: FirebaseConfig, domainName: string): Ge
   const swLogMessagingSdkMissing = `[WebPushPro SW v${SCRIPT_VERSION}] Firebase Messaging SDK or Firebase App SW not available for SW Messaging init.`;
   const swLogSetupComplete = `[WebPushPro SW v${SCRIPT_VERSION}] SW setup attempt complete for ${domainName}.`;
   const swLogExecuting = `[WebPushPro SW v${SCRIPT_VERSION}] firebase-messaging-sw.js executing for ${domainName}...`;
+  const swOnBackgroundMessageLogPrefix = `[WebPushPro SW v${SCRIPT_VERSION}] Received background message:`;
 
 
   const clientScript = `
@@ -72,7 +73,7 @@ function generateFirebaseScripts(config: FirebaseConfig, domainName: string): Ge
 console.log('[WebPushPro Client v${SCRIPT_VERSION}] Initializing script for ${domainName}...');
 if (typeof firebase !== 'undefined' && firebase.SDK_VERSION) {
     console.log('[WebPushPro Client v${SCRIPT_VERSION}] Found global firebase object. firebase.SDK_VERSION:', firebase.SDK_VERSION);
-    if (firebase.messaging && typeof firebase.messaging.isSupported === 'function' && firebase.messaging.SDK_VERSION) { // Check if messaging compat is loaded
+    if (firebase.messaging && typeof firebase.messaging.isSupported === 'function' && firebase.messaging.SDK_VERSION) { 
         console.log('[WebPushPro Client v${SCRIPT_VERSION}] firebase.messaging is available. firebase.messaging.SDK_VERSION:', firebase.messaging.SDK_VERSION);
     } else {
         console.warn('[WebPushPro Client v${SCRIPT_VERSION}] firebase.messaging is NOT fully available or firebase.messaging.SDK_VERSION is missing. Ensure firebase-messaging-compat.js loaded AFTER firebase-app-compat.js and BEFORE this script.');
@@ -209,7 +210,7 @@ if (firebaseApp && messaging) {
         console.log('[WebPushPro Client v${SCRIPT_VERSION}] DIAGNOSTIC: About to check messaging.useServiceWorker.');
         console.log('[WebPushPro Client v${SCRIPT_VERSION}] DIAGNOSTIC: Current messaging instance:', messaging);
         if (messaging) {
-            console.log('[WebPushPro Client v${SCRIPT_VERSION}] DIAGNOSTIC: Keys in current messaging instance:', Object.keys(messaging));
+            console.log(\`[WebPushPro Client v\${SCRIPT_VERSION}] DIAGNOSTIC: Keys in current messaging instance:\`, Object.keys(messaging));
             let hasMethod = false;
             try { 
                 for (const key in messaging) {
@@ -322,11 +323,11 @@ if (firebaseAppSW && typeof firebase.messaging === 'function') {
 
     // Optional: Handle background messages here
     // messagingSW.onBackgroundMessage(function(payload) {
-    //   console.log(\`[WebPushPro SW v${SCRIPT_VERSION}] Received background message:\`, payload); // Keep SCRIPT_VERSION here if uncommented
+    //   console.log(\`\${'${swOnBackgroundMessageLogPrefix}'}\`, payload); 
     //   const notificationTitle = payload.notification?.title || 'New Message';
     //   const notificationOptions = {
     //     body: payload.notification?.body || 'You have a new message.',
-    //     icon: payload.notification?.icon || '/firebase-logo.png'
+    //     icon: payload.notification?.icon || '/firebase-logo.png' // Consider a default icon you host
     //   };
     //   return self.registration.showNotification(notificationTitle, notificationOptions);
     // });
