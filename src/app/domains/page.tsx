@@ -15,6 +15,7 @@ import { db } from '@/lib/firebase';
 import { collection, addDoc, getDocs, Timestamp, query, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const initialFirebaseConfig: FirebaseConfig = {
   apiKey: '',
@@ -26,333 +27,231 @@ const initialFirebaseConfig: FirebaseConfig = {
   vapidKey: '',
 };
 
-function generateFirebaseScript(config: FirebaseConfig, domainName: string): string {
+interface GeneratedScripts {
+  clientScript: string;
+  serviceWorkerScript: string;
+}
+
+// Updated Script Version
+const SCRIPT_VERSION = "1.8.0";
+
+function generateFirebaseScripts(config: FirebaseConfig, domainName: string): GeneratedScripts {
   const apiBaseUrl = typeof window !== 'undefined' ? window.location.origin : 'YOUR_WEBPUSH_PRO_APP_URL';
   const clientAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app';
   const swAppName = domainName.replace(/[^a-zA-Z0-9]/g, '') + '-firebase-app-sw';
 
-  // Version 1.7.1 - Added SDK version logging
-  return `
+  const clientScript = `
 /*
-  ====================================================================
-  !!! CRITICAL PREREQUISITES for YOUR WEBSITE (${domainName}) !!!
-  ====================================================================
-  To prevent the "messaging.useServiceWorker is not a function" error,
-  you MUST ensure the Firebase JavaScript SDK (compat versions) are
-  loaded in your website's HTML *BEFORE* this WebPush Pro script.
-
-  Add these exact script tags to your HTML (e.g., in the <head> or
-  before this script at the end of <body>):
-
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
-
-  - ORDER MATTERS: These Firebase SDK scripts MUST come BEFORE the
-    WebPush Pro script.
-  - NO ASYNC/DEFER (Usually): Avoid 'async' or 'defer' attributes on
-    these Firebase SDK script tags unless this WebPush Pro script is also
-    loaded in a compatible deferred manner. Plain script tags are safest.
-  - CHECK CONSOLE: If issues persist, check your browser console for
-    any errors originating from the Firebase SDK scripts themselves.
-
-  The 'firebase-messaging-sw.js' file (detailed below) also needs
-  these SDKs via importScripts().
-  ====================================================================
-
-  WebPush Pro Integration Script for ${domainName}
-  Version: 1.7.1 (Enhanced Debugging, SDK Version Logging)
+  WebPush Pro - Client Integration Script for ${domainName}
+  Version: ${SCRIPT_VERSION}
+  
+  INSTRUCTIONS:
+  1. Place this script in your website's HTML, ideally before the closing </body> tag.
+  2. CRITICAL: Ensure Firebase SDKs are loaded BEFORE this script. Add these to your <head> or before this script:
+     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script>
+  3. Create a 'firebase-messaging-sw.js' file in the ROOT of your website 
+     (e.g., https://${domainName}/firebase-messaging-sw.js)
+     and paste the "Service Worker Script" content into it.
 */
+console.log('[WebPushPro Client v${SCRIPT_VERSION}] Initializing for ${domainName}...');
 
-console.log('[WebPushPro] Initializing script v1.7.1 for ${domainName}...');
+(function() {
+  const firebaseConfig = ${JSON.stringify(config, null, 2)};
+  const VAPID_KEY = '${config.vapidKey || ""}';
+  const API_BASE_URL = '${apiBaseUrl}';
+  const CLIENT_APP_NAME = '${clientAppName}';
 
-// Log Firebase SDK versions if available
-if (typeof firebase !== 'undefined') {
-  console.log('[WebPushPro] Found global firebase object. firebase.SDK_VERSION:', firebase.SDK_VERSION);
-  if (firebase.messaging && typeof firebase.messaging === 'function') {
-    // This might log the factory function before it's fully initialized by firebase-messaging-compat.js
-    console.log('[WebPushPro] firebase.messaging function exists.');
-  } else if (firebase.messaging && typeof firebase.messaging === 'object') {
-     console.log('[WebPushPro] firebase.messaging object exists. firebase.messaging.SDK_VERSION:', firebase.messaging.SDK_VERSION);
-  } else {
-    console.log('[WebPushPro] firebase.messaging is not a function or object yet.');
-  }
-} else {
-  console.log('[WebPushPro] Global firebase object not found at initial check.');
-}
+  let firebaseApp = null;
+  let messaging = null;
 
-
-// --- Configuration ---
-const firebaseConfig = ${JSON.stringify(config, null, 2)};
-console.log('[WebPushPro] Firebase Config for ${domainName}:', firebaseConfig);
-
-const VAPID_KEY = '${config.vapidKey || ""}';
-console.log('[WebPushPro] VAPID Key for ${domainName} (first 10 chars):', VAPID_KEY ? VAPID_KEY.substring(0, 10) + '...' : 'NOT PROVIDED - ESSENTIAL FOR FCM TOKEN');
-
-const API_BASE_URL = '${apiBaseUrl}';
-console.log('[WebPushPro] API Base URL:', API_BASE_URL);
-
-const CLIENT_APP_NAME = '${clientAppName}';
-const SW_APP_NAME = '${swAppName}';
-
-// --- Firebase Initialization (Client) ---
-let firebaseApp = null;
-let messaging = null;
-
-if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
+  // 1. Initialize Firebase App
+  if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
     const existingApp = firebase.apps.find(app => app.name === CLIENT_APP_NAME);
     if (existingApp) {
-        firebaseApp = existingApp;
-        console.log('[WebPushPro] Using existing Firebase app instance:', CLIENT_APP_NAME);
+      firebaseApp = existingApp;
     } else {
-        try {
-            firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
-            console.log('[WebPushPro] Firebase app instance initialized:', CLIENT_APP_NAME);
-        } catch (initError) {
-            console.error('[WebPushPro] Error initializing Firebase app (' + CLIENT_APP_NAME + '):', initError);
-            // firebaseApp remains null
-        }
-    }
-} else {
-    console.error('[WebPushPro] Firebase library not fully loaded (firebase or initializeApp is missing). Ensure firebase-app-compat.js is included on your page BEFORE this script. Check for errors from firebase-app-compat.js itself.');
-}
-
-// --- Messaging Initialization and Support Check (strictly conditional on firebaseApp) ---
-if (firebaseApp) {
-    console.log('[WebPushPro] Firebase app ('+ CLIENT_APP_NAME +') is available. Proceeding with Messaging checks.');
-    if (typeof firebase.messaging === 'function' && typeof firebase.messaging.isSupported === 'function') {
-        // At this point, firebase.messaging should have been augmented by firebase-messaging-compat.js
-        if (firebase.messaging.isSupported()) {
-            console.log('[WebPushPro] Firebase Messaging is supported by this browser.');
-            try {
-                messaging = firebase.messaging(firebaseApp); // Use the specific app instance
-                console.log('[WebPushPro] Firebase Messaging service initialized for app:', CLIENT_APP_NAME, 'Messaging object:', messaging);
-                 if (messaging && typeof messaging.useServiceWorker !== 'function') {
-                  console.warn('[WebPushPro] DIAGNOSTIC: messaging object IS initialized, but useServiceWorker is STILL UNDEFINED on it. This is highly indicative of firebase-messaging-compat.js not fully executing or being blocked.');
-                }
-            } catch (messagingError) {
-                console.error('[WebPushPro] Error initializing Firebase Messaging service:', messagingError);
-                // messaging remains null
-            }
-        } else {
-            console.warn('[WebPushPro] Firebase Messaging is not supported in this browser for ${domainName}. Push notifications will not work. This might be due to an insecure context (HTTP instead of HTTPS), running in an iframe, or browser settings.');
-        }
-    } else {
-        console.error('[WebPushPro] Firebase Messaging library (firebase.messaging or firebase.messaging.isSupported) not loaded or not a function. Ensure firebase-messaging-compat.js is included on your page BEFORE this script and has executed correctly. Check global firebase object:', window.firebase, 'and look for errors from firebase-messaging-compat.js itself.');
-         if (window.firebase && window.firebase.messaging) {
-            console.log('[WebPushPro] DIAGNOSTIC: window.firebase.messaging exists. Type:', typeof window.firebase.messaging, 'Value:', window.firebase.messaging);
-        }
-    }
-} else {
-    console.log('[WebPushPro] Firebase app ('+ CLIENT_APP_NAME +') not available, skipping Messaging initialization.');
-}
-
-
-// --- Subscription Logic ---
-function requestPermissionAndGetToken() {
-  if (!messaging) {
-    console.error('[WebPushPro] Messaging not available for app ' + CLIENT_APP_NAME + ', cannot request permission or get token for ${domainName}. Check previous logs for initialization errors.');
-    return;
-  }
-  if (!VAPID_KEY) {
-    console.error('[WebPushPro] VAPID_KEY is missing for ${domainName}. Cannot get FCM token. Please configure it in WebPush Pro settings for this domain.');
-    return;
-  }
-
-  console.log('[WebPushPro] Requesting notification permission for ${domainName}...');
-  Notification.requestPermission().then((permission) => {
-    console.log('[WebPushPro] Notification permission status for ${domainName}:', permission);
-    if (permission === 'granted') {
-      console.log('[WebPushPro] Notification permission granted for ${domainName}. Attempting to get FCM token using VAPID key (first 10 chars):', VAPID_KEY.substring(0, 10) + '...');
-      messaging.getToken({ vapidKey: VAPID_KEY })
-        .then((currentToken) => {
-          if (currentToken) {
-            console.log('[WebPushPro] FCM Token obtained for ${domainName}:', currentToken.substring(0, 20) + '...');
-            const subscriberData = {
-              token: currentToken,
-              domainName: '${domainName}',
-              userAgent: navigator.userAgent
-            };
-            console.log('[WebPushPro] Preparing to send subscriber data to API (' + API_BASE_URL + '/api/subscribe):', subscriberData);
-
-            fetch(API_BASE_URL + '/api/subscribe', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(subscriberData)
-            })
-            .then(response => {
-              console.log('[WebPushPro] API /api/subscribe response status:', response.status);
-              return response.json().then(data => ({ ok: response.ok, status: response.status, data }));
-            })
-            .then(({ ok, status, data }) => {
-              if (ok && data.id) {
-                console.log('[WebPushPro] Subscription successful via API for ${domainName}. Subscriber ID:', data.id, 'Full Response:', data);
-              } else {
-                console.error('[WebPushPro] Subscription API response error for ${domainName}. Status:', status, 'Response Data:', data);
-              }
-            })
-            .catch(err => {
-              console.error('[WebPushPro] Subscription API fetch error for ${domainName}:', err);
-            });
-          } else {
-            console.warn('[WebPushPro] No registration token available for ${domainName}. Check VAPID key, SW registration/activation, permission status, or FCM setup. Ensure your site is HTTPS.');
-          }
-        }).catch((err) => {
-          console.error('[WebPushPro] An error occurred while retrieving FCM token for ${domainName}:', err);
-          console.error('[WebPushPro] Common token errors: Check VAPID key, ensure firebase-messaging-sw.js is in root & correctly configured (check its console logs), or service worker not active yet.');
-        });
-    } else {
-      console.warn('[WebPushPro] Unable to get permission to notify for ${domainName}. Permission state: ' + permission);
-    }
-  }).catch(err => {
-    console.error('[WebPushPro] Error requesting notification permission for ${domainName}:', err);
-  });
-}
-
-// --- Service Worker Registration and Token Retrieval ---
-// This entire block only runs if both firebaseApp and messaging service are successfully initialized.
-if (firebaseApp && messaging) {
-  if ('serviceWorker' in navigator) {
-    console.log('[WebPushPro] Service Worker API is supported. Attempting to register /firebase-messaging-sw.js');
-    navigator.serviceWorker.register('/firebase-messaging-sw.js') // Standard path for FCM
-      .then(function(registration) {
-        console.log('[WebPushPro] Service Worker registered successfully for ${domainName}. Scope:', registration.scope);
-        console.log('[WebPushPro] Registration object:', registration);
-
-        // Enhanced debugging before calling useServiceWorker:
-        console.log('[WebPushPro] About to call useServiceWorker. Current messaging object:', messaging);
-        console.log('[WebPushPro] Type of messaging.useServiceWorker:', typeof messaging.useServiceWorker); // EXPECT "function"
-        console.log('[WebPushPro] Global firebase object state (should be available): ', window.firebase);
-        if (window.firebase && typeof window.firebase.messaging === 'function') {
-          console.log('[WebPushPro] Global firebase.messaging state (should be the fully initialized service by now): ', window.firebase.messaging);
-          try {
-            const globalMessagingInstance = window.firebase.messaging(); // This might error if default app not init, which is fine for named apps.
-            console.log('[WebPushPro] Global firebase.messaging() instance type of useServiceWorker (diagnostic only):', typeof globalMessagingInstance.useServiceWorker);
-          } catch(e) {
-            console.warn('[WebPushPro] Could not get global firebase.messaging() instance for diagnostic check (this is often OK if using named apps):', e.message);
-          }
-        } else {
-            console.log('[WebPushPro] Global firebase.messaging is not a function or firebase object is not fully available at SW registration time.');
-        }
-
-
-        if (messaging && typeof messaging.useServiceWorker === 'function') {
-            messaging.useServiceWorker(registration);
-            console.log('[WebPushPro] Firebase Messaging is using the registered service worker for app ' + CLIENT_APP_NAME);
-        } else {
-            console.error(
-              '[WebPushPro] CRITICAL ERROR: messaging.useServiceWorker is not a function. \\n' +
-              'This almost always means the Firebase Messaging Compat library (firebase-messaging-compat.js) was not loaded or did not execute correctly on your page *BEFORE* this script. \\n' +
-              'TROUBLESHOOTING STEPS (RE-CHECK CAREFULLY): \\n' +
-              '1. CHECK CONSOLE FOR OTHER ERRORS: Look for any errors that occurred *before* this one, especially errors originating from firebase-app-compat.js or firebase-messaging-compat.js. These earlier errors can prevent subsequent scripts from working. \\n' +
-              '2. VERIFY SCRIPT ORDER AND LOADING IN YOUR WEBSITE\\u0027S HTML: \\n' +
-              '   - Ensure <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script> AND <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js"></script> tags are in your HTML. \\n' +
-              '   - They ABSOLUTELY MUST appear *before* this WebPush Pro script tag. \\n' +
-              '   - Check for \\u0060async\\u0060 or \\u0060defer\\u0060 attributes on these Firebase SDK script tags. If present, they WILL LIKELY cause this script to run too early. Remove them, or ensure this WebPush Pro script is also deferred AND loaded after them. Plain script tags without async/defer are the safest way to ensure order. \\n' +
-              '3. CHECK NETWORK TAB: In your browser\\u0027s developer tools: \\n' +
-              '   - Confirm firebase-app-compat.js and firebase-messaging-compat.js downloaded with HTTP 200 OK. \\n' +
-              '   - Verify their content looks like valid Firebase SDK code (not an error page or empty file). \\n' +
-              '4. INSPECT LOGS ABOVE: Review the "Global firebase object state", "Global firebase.messaging state", "Type of messaging.useServiceWorker" and "Current messaging object" logs. This shows that your specific \\u0060messaging\\u0060 object lacks the \\u0060useServiceWorker\\u0060 method. \\n' +
-              'Messaging object causing the error:', messaging
-            );
-            return; // Stop further execution in this path
-        }
-
-        console.log('[WebPushPro] Waiting for Service Worker to be ready (controller active)...');
-        navigator.serviceWorker.ready.then(function(swReady) {
-            console.log('[WebPushPro] Service Worker is ready. Registration:', swReady);
-            console.log('[WebPushPro] Proceeding to request permission and get token...');
-            requestPermissionAndGetToken(); // Request token now that SW is ready and messaging is using it.
-        }).catch(function(swReadyError){
-            console.error('[WebPushPro] Service Worker .ready() promise rejected:', swReadyError);
-        });
-
-      }).catch(function(error) {
-        console.error('[WebPushPro] Service Worker registration failed for ${domainName}:', error);
-        console.error('[WebPushPro] Ensure firebase-messaging-sw.js is in the root directory of your site and accessible. Check its content and Firebase config.');
-      });
-  } else {
-    console.warn('[WebPushPro] Service workers are not supported in this browser for ${domainName}. Push notifications will not work.');
-  }
-} else {
-  console.warn('[WebPushPro] Firebase app or messaging service not successfully initialized for ${domainName}. Service Worker setup and token retrieval skipped. Check previous logs for errors (e.g., missing Firebase SDK script includes on your page).');
-}
-
-/*
-  ====================================================================
-  !!! IMPORTANT: firebase-messaging-sw.js File !!! (Version 1.7.1)
-  ====================================================================
-  You MUST create a file named 'firebase-messaging-sw.js' in the
-  ROOT DIRECTORY of your website (e.g., public/firebase-messaging-sw.js).
-  It should be served from the root, e.g., https://${domainName}/firebase-messaging-sw.js
-
-  It should contain AT LEAST the following:
-
-  // File: firebase-messaging-sw.js (Root of your public website)
-  // Version: 1.7.1
-
-  // These scripts are REQUIRED for the service worker.
-  importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
-  importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
-
-  console.log('[SW] firebase-messaging-sw.js executing (v1.7.1)...');
-
-  // IMPORTANT: This config MUST match the config provided for this domain in WebPush Pro
-  const firebaseConfigSW = ${JSON.stringify(config, null, 2)};
-  console.log('[SW] Firebase Config for Service Worker:', firebaseConfigSW);
-
-  const swAppName = '${swAppName}';
-  let firebaseAppSW = null;
-  let messagingSW = null; 
-
-  if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
-    const existingSwApp = firebase.apps.find(app => app.name === swAppName);
-    if (existingSwApp) {
-        firebaseAppSW = existingSwApp;
-        console.log('[SW] Using existing Firebase app instance:', swAppName);
-    } else {
-        try {
-          firebaseAppSW = firebase.initializeApp(firebaseConfigSW, swAppName);
-          console.log('[SW] Firebase app instance initialized in Service Worker:', swAppName);
-        } catch (initError) {
-          console.error('[SW] Error initializing Firebase app (' + swAppName + ') in Service Worker:', initError);
-        }
-    }
-  } else {
-     console.error('[SW] Firebase library not fully loaded (initializeApp is missing) in Service Worker. Ensure firebase-app-compat.js was imported.');
-  }
-
-  if (firebaseAppSW) {
-    if (typeof firebase.messaging === 'function') {
       try {
-        messagingSW = firebase.messaging(firebaseAppSW); // Initialize with the specific SW app
-        console.log('[SW] Firebase Messaging service initialized in Service Worker for app:', swAppName);
+        firebaseApp = firebase.initializeApp(firebaseConfig, CLIENT_APP_NAME);
+        console.log('[WebPushPro Client] Firebase app initialized:', CLIENT_APP_NAME);
+      } catch (e) {
+        console.error('[WebPushPro Client] Error initializing Firebase app:', e);
+        return;
+      }
+    }
+  } else {
+    console.error('[WebPushPro Client] Firebase core SDK (firebase-app-compat.js) not found. Ensure it is loaded before this script.');
+    return;
+  }
 
-        // Optional: Handle background messages here
-        // messagingSW.onBackgroundMessage(function(payload) {
-        //   console.log('[SW] Received background message for ${domainName}:', payload);
-        //   // Customize notification here
-        //   const notificationTitle = payload.notification?.title || 'New Message from ${domainName}';
-        //   const notificationOptions = {
-        //     body: payload.notification?.body || 'You have a new message.',
-        //     icon: payload.notification?.icon || '/firebase-logo.png', // Default icon
-        //     data: payload.data // Pass along any data with the notification
-        //   };
-        //   self.registration.showNotification(notificationTitle, notificationOptions);
-        // });
-        // console.log('[SW] Background message handler set up (or ready to be).');
-
-      } catch (swMessagingError) {
-        console.error('[SW] Error initializing Firebase Messaging in Service Worker:', swMessagingError);
+  // 2. Initialize Firebase Messaging
+  if (firebaseApp && typeof firebase.messaging === 'function' && typeof firebase.messaging.isSupported === 'function') {
+    if (firebase.messaging.isSupported()) {
+      try {
+        messaging = firebase.messaging(firebaseApp);
+        console.log('[WebPushPro Client] Firebase Messaging service initialized.');
+      } catch (e) {
+        console.error('[WebPushPro Client] Error initializing Firebase Messaging:', e);
+        return;
       }
     } else {
-      console.error('[SW] Firebase Messaging library (firebase.messaging) not loaded in Service Worker. Ensure firebase-messaging-compat.js was imported.');
+      console.warn('[WebPushPro Client] Firebase Messaging not supported in this browser.');
+      return;
     }
   } else {
-    console.error('[SW] Firebase app (SW) not available, Firebase Messaging could not be initialized in Service Worker.');
+    console.error('[WebPushPro Client] Firebase Messaging SDK (firebase-messaging-compat.js) not found or not supported. Ensure it is loaded before this script.');
+    return;
   }
-  console.log('[SW] firebase-messaging-sw.js setup attempt complete.');
-*/
+
+  // 3. Register Service Worker & Get Token
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/firebase-messaging-sw.js')
+      .then(function(registration) {
+        console.log('[WebPushPro Client] Service Worker registered. Scope:', registration.scope);
+        
+        if (typeof messaging.useServiceWorker !== 'function') {
+          console.error('[WebPushPro Client] messaging.useServiceWorker is not a function. This usually means firebase-messaging-compat.js did not load or execute correctly BEFORE this script.');
+          return;
+        }
+        messaging.useServiceWorker(registration);
+        console.log('[WebPushPro Client] Messaging will use service worker.');
+
+        return navigator.serviceWorker.ready;
+      })
+      .then(function(swReady) {
+        if (!swReady) { 
+          console.warn('[WebPushPro Client] Service worker not ready after registration.');
+          return;
+        }
+        console.log('[WebPushPro Client] Service Worker ready.');
+        requestPermissionAndGetToken();
+      })
+      .catch(function(error) {
+        console.error('[WebPushPro Client] Service Worker registration failed:', error);
+      });
+  } else {
+    console.warn('[WebPushPro Client] Service Workers not supported in this browser.');
+  }
+
+  function requestPermissionAndGetToken() {
+    if (!messaging || !VAPID_KEY) {
+      if (!VAPID_KEY) console.error('[WebPushPro Client] VAPID_KEY is missing.');
+      if (!messaging) console.error('[WebPushPro Client] Messaging service not available.');
+      return;
+    }
+
+    Notification.requestPermission().then((permission) => {
+      console.log('[WebPushPro Client] Notification permission status:', permission);
+      if (permission === 'granted') {
+        messaging.getToken({ vapidKey: VAPID_KEY })
+          .then((currentToken) => {
+            if (currentToken) {
+              console.log('[WebPushPro Client] FCM Token obtained (first 20 chars):', currentToken.substring(0,20) + '...');
+              sendTokenToServer(currentToken);
+            } else {
+              console.warn('[WebPushPro Client] No FCM token received. Check VAPID key and SW setup.');
+            }
+          }).catch((err) => {
+            console.error('[WebPushPro Client] Error retrieving FCM token:', err);
+          });
+      }
+    }).catch(err => {
+      console.error('[WebPushPro Client] Error requesting notification permission:', err);
+    });
+  }
+
+  function sendTokenToServer(token) {
+    const subscriberData = {
+      token: token,
+      domainName: '${domainName}',
+      userAgent: navigator.userAgent
+    };
+    fetch(API_BASE_URL + '/api/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(subscriberData)
+    })
+    .then(response => response.json().then(data => ({ ok: response.ok, status: response.status, data })))
+    .then(({ ok, status, data }) => {
+      if (ok) {
+        console.log('[WebPushPro Client] Subscription successful via API. ID:', data.id);
+      } else {
+        console.error('[WebPushPro Client] Subscription API error. Status:', status, 'Response:', data);
+      }
+    })
+    .catch(err => {
+      console.error('[WebPushPro Client] Subscription API fetch error:', err);
+    });
+  }
+})();
 `;
+
+  const serviceWorkerScript = `
+/*
+  WebPush Pro - Service Worker Script for ${domainName}
+  File: firebase-messaging-sw.js (Place this in the ROOT of your website)
+  Version: ${SCRIPT_VERSION}
+*/
+
+// These scripts are REQUIRED for the service worker.
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
+
+console.log('[WebPushPro SW v${SCRIPT_VERSION}] firebase-messaging-sw.js executing...');
+
+const firebaseConfigSW = ${JSON.stringify(config, null, 2)};
+const SW_APP_NAME = '${swAppName}';
+
+let firebaseAppSW = null;
+let messagingSW = null;
+
+// 1. Initialize Firebase App in Service Worker
+if (typeof firebase !== 'undefined' && typeof firebase.initializeApp === 'function') {
+  const existingSwApp = firebase.apps.find(app => app.name === SW_APP_NAME);
+  if (existingSwApp) {
+      firebaseAppSW = existingSwApp;
+  } else {
+      try {
+        firebaseAppSW = firebase.initializeApp(firebaseConfigSW, SW_APP_NAME);
+        console.log('[WebPushPro SW] Firebase app initialized in SW:', SW_APP_NAME);
+      } catch (e) {
+        console.error('[WebPushPro SW] Error initializing Firebase app in SW:', e);
+      }
+  }
+} else {
+   console.error('[WebPushPro SW] Firebase core SDK (firebase-app-compat.js) not imported or available in SW.');
+}
+
+// 2. Initialize Firebase Messaging in Service Worker
+if (firebaseAppSW && typeof firebase.messaging === 'function') {
+  try {
+    messagingSW = firebase.messaging(firebaseAppSW);
+    console.log('[WebPushPro SW] Firebase Messaging service initialized in SW.');
+
+    // Optional: Handle background messages here
+    // messagingSW.onBackgroundMessage(function(payload) {
+    //   console.log('[WebPushPro SW] Received background message:', payload);
+    //   // Customize notification display here if needed
+    //   const notificationTitle = payload.notification?.title || 'New Message';
+    //   const notificationOptions = {
+    //     body: payload.notification?.body || 'You have a new message.',
+    //     icon: payload.notification?.icon || '/firebase-logo.png' // Provide a default icon
+    //   };
+    //   return self.registration.showNotification(notificationTitle, notificationOptions);
+    // });
+    // console.log('[WebPushPro SW] Background message handler ready (if uncommented).');
+
+  } catch (e) {
+    console.error('[WebPushPro SW] Error initializing Firebase Messaging in SW:', e);
+  }
+} else {
+  console.error('[WebPushPro SW] Firebase Messaging SDK (firebase-messaging-compat.js) not imported or Firebase App SW not available.');
+}
+
+console.log('[WebPushPro SW] Setup attempt complete.');
+`;
+
+  return { clientScript, serviceWorkerScript };
 }
 
 
@@ -362,7 +261,8 @@ export default function DomainsPage() {
   const [isAddingDomain, setIsAddingDomain] = useState(false);
   const [newDomainName, setNewDomainName] = useState('');
   const [newFirebaseConfig, setNewFirebaseConfig] = useState<FirebaseConfig>(initialFirebaseConfig);
-  const [selectedDomainForScript, setSelectedDomainForScript] = useState<Domain | null>(null);
+  const [selectedScripts, setSelectedScripts] = useState<GeneratedScripts | null>(null);
+  const [selectedDomainNameForScript, setSelectedDomainNameForScript] = useState<string | null>(null);
   const { toast } = useToast();
   const [verifyingDomainId, setVerifyingDomainId] = useState<string | null>(null);
 
@@ -465,14 +365,8 @@ export default function DomainsPage() {
     const newVerificationTime = Timestamp.fromDate(new Date());
     try {
       console.log(`Simulating verification for domain ${domainToVerify.name} (ID: ${domainId}) with token ${token}`);
-      // In a real app, you would make an API call to a backend that checks DNS TXT records.
-      // For this prototype, we'll simulate a successful verification.
-      // This part would typically be:
-      // const response = await fetch(`/api/verify-domain?domain=${domainToVerify.name}&token=${token}`);
-      // const result = await response.json();
-      // const isActuallyVerified = result.verified;
-      await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
-      const isActuallyVerified = true; // For prototype: assume success
+      await new Promise(resolve => setTimeout(resolve, 1500)); 
+      const isActuallyVerified = true; 
 
       const domainRef = doc(db, "domains", domainId);
 
@@ -505,7 +399,7 @@ export default function DomainsPage() {
       try {
         await updateDoc(domainRef, {
           lastVerificationAttempt: newVerificationTime,
-          status: 'error', // Ensure status is error on any verification exception
+          status: 'error', 
         });
         setDomains(prevDomains =>
           prevDomains.map(d =>
@@ -538,6 +432,13 @@ export default function DomainsPage() {
       console.error('Failed to copy: ', err);
     });
   };
+
+  const handleOpenGetScriptDialog = (domain: Domain) => {
+    const scripts = generateFirebaseScripts(domain.firebaseConfig, domain.name);
+    setSelectedScripts(scripts);
+    setSelectedDomainNameForScript(domain.name);
+  };
+
 
   return (
     <div className="container mx-auto">
@@ -682,32 +583,65 @@ export default function DomainsPage() {
                   </Button>
                 )}
                 {domain.status === 'verified' && (
-                  <Dialog onOpenChange={(open) => !open && setSelectedDomainForScript(null)}>
+                  <Dialog onOpenChange={(open) => !open && setSelectedScripts(null)}>
                     <DialogTrigger asChild>
-                      <Button variant="outline" onClick={() => setSelectedDomainForScript(domain)}>
-                        <Code2 className="mr-2 h-5 w-5" /> Get Script
+                      <Button variant="outline" onClick={() => handleOpenGetScriptDialog(domain)}>
+                        <Code2 className="mr-2 h-5 w-5" /> Get Scripts
                       </Button>
                     </DialogTrigger>
-                    {selectedDomainForScript?.id === domain.id && (
+                    {selectedScripts && selectedDomainNameForScript === domain.name && (
                        <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
                         <DialogHeader>
-                          <DialogTitle>Integration Script for {selectedDomainForScript.name}</DialogTitle>
+                          <DialogTitle>Integration Scripts for {selectedDomainNameForScript}</DialogTitle>
                           <DialogDescription>
-                            Copy and paste this script into your website's HTML.
-                            Also create a <code className="font-mono bg-muted px-1 rounded-sm">firebase-messaging-sw.js</code> file in your site's root (see comments in script for content).
+                            Use these scripts to integrate WebPush Pro with your website.
                           </DialogDescription>
                         </DialogHeader>
-                        <div className="flex-grow overflow-auto p-1">
-                          <pre className="bg-muted p-4 rounded-md text-xs whitespace-pre-wrap break-all">
-                            <code>{generateFirebaseScript(selectedDomainForScript.firebaseConfig, selectedDomainForScript.name)}</code>
-                          </pre>
-                        </div>
-                        <DialogFooter className="gap-2 sm:gap-0">
-                           <Button onClick={() => {
-                              copyToClipboard(generateFirebaseScript(selectedDomainForScript.firebaseConfig, selectedDomainForScript.name), "Script copied to clipboard.");
-                           }}>
-                            <Copy className="mr-2 h-4 w-4" /> Copy Script
-                           </Button>
+                        
+                        <Tabs defaultValue="client-script" className="flex-grow flex flex-col overflow-hidden">
+                          <TabsList className="grid w-full grid-cols-2">
+                            <TabsTrigger value="client-script">Client-Side Script (for HTML)</TabsTrigger>
+                            <TabsTrigger value="sw-script">Service Worker Script (for firebase-messaging-sw.js)</TabsTrigger>
+                          </TabsList>
+                          <TabsContent value="client-script" className="flex-grow overflow-auto p-1 mt-0">
+                            <div className="rounded-md border bg-muted p-4">
+                              <p className="text-sm text-muted-foreground mb-2">
+                                Place this script in your website's HTML, ideally before the closing <code className="font-mono bg-background px-1 rounded-sm">&lt;/body&gt;</code> tag.
+                                Ensure Firebase SDKs are loaded before this script (see comments within).
+                              </p>
+                              <pre className="text-xs whitespace-pre-wrap break-all">
+                                <code>{selectedScripts.clientScript}</code>
+                              </pre>
+                               <Button 
+                                onClick={() => copyToClipboard(selectedScripts.clientScript, "Client-side script copied.")} 
+                                size="sm" 
+                                className="mt-2"
+                              >
+                                <Copy className="mr-2 h-4 w-4" /> Copy Client Script
+                              </Button>
+                            </div>
+                          </TabsContent>
+                          <TabsContent value="sw-script" className="flex-grow overflow-auto p-1 mt-0">
+                             <div className="rounded-md border bg-muted p-4">
+                              <p className="text-sm text-muted-foreground mb-2">
+                                Create a file named <code className="font-mono bg-background px-1 rounded-sm">firebase-messaging-sw.js</code> in the
+                                ROOT directory of your website and paste this content into it.
+                              </p>
+                              <pre className="text-xs whitespace-pre-wrap break-all">
+                                <code>{selectedScripts.serviceWorkerScript}</code>
+                              </pre>
+                              <Button 
+                                onClick={() => copyToClipboard(selectedScripts.serviceWorkerScript, "Service Worker script copied.")} 
+                                size="sm" 
+                                className="mt-2"
+                              >
+                                <Copy className="mr-2 h-4 w-4" /> Copy Service Worker Script
+                              </Button>
+                            </div>
+                          </TabsContent>
+                        </Tabs>
+
+                        <DialogFooter className="mt-4">
                           <DialogClose asChild>
                             <Button variant="outline">Close</Button>
                           </DialogClose>
